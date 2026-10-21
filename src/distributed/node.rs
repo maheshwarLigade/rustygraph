@@ -1,7 +1,7 @@
-use crate::cluster::ClusterMode;
-use crate::db::StandaloneDatabase;
+use super::consensus::ClusterMode;
 use crate::error::{Error, Result};
-use crate::wal::WalOp;
+use crate::storage::db::StandaloneDatabase;
+use crate::storage::wal::WalOp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -301,7 +301,6 @@ impl DistributedClusterNode {
             }
             ClusterMessage::RequestVoteResponse { .. } => None,
             ClusterMessage::ForwardWrite { op } => {
-                // Apply locally to WAL and in-memory graph
                 let res = self.apply_write_locally(op);
                 Some(ClusterMessage::ForwardWriteAck {
                     success: res.is_ok(),
@@ -323,7 +322,6 @@ impl DistributedClusterNode {
             thread::sleep(Duration::from_millis(500));
 
             if self.is_leader.load(Ordering::SeqCst) {
-                // Broadcast leader heartbeat
                 let msg = ClusterMessage::Heartbeat {
                     from: self.node_id.clone(),
                     term: self.current_term.load(Ordering::SeqCst),
@@ -331,10 +329,8 @@ impl DistributedClusterNode {
                 };
                 self.broadcast_message(&msg);
             } else {
-                // Follower: check if leader heartbeat timed out
                 let elapsed = self.last_heartbeat.lock().unwrap().elapsed();
                 if elapsed > Duration::from_millis(2500) && matches!(self.mode, ClusterMode::CP) {
-                    // Leader election candidate
                     self.start_election();
                 }
             }
@@ -364,12 +360,10 @@ impl DistributedClusterNode {
             }
         }
 
-        // Check majority quorum: > N / 2
         if votes > total_nodes / 2 {
             self.is_leader.store(true, Ordering::SeqCst);
             *self.known_leader.write().unwrap() = Some(self.node_id.clone());
 
-            // Announce leadership
             let announce = ClusterMessage::Heartbeat {
                 from: self.node_id.clone(),
                 term: new_term,

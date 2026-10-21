@@ -1,4 +1,4 @@
-//! Distributed Cluster Engine & CAP Theorem Guarantees
+//! Distributed Cluster Consensus & CAP Theorem Guarantees
 //!
 //! This module provides distributed cluster replication for `rusty_graph` with configurable
 //! **CP (Consistency + Partition Tolerance)** and **AP (Availability + Partition Tolerance)** modes,
@@ -99,9 +99,9 @@ pub struct LogEntry {
     pub command: ClusterCommand,
 }
 
-/// Messages exchanged across the cluster network.
+/// Messages exchanged across the cluster network simulation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ClusterMessage {
+pub enum SimulatedClusterMessage {
     // Raft-style consensus messages (CP Mode)
     RequestVote {
         term: u64,
@@ -141,7 +141,7 @@ pub enum ClusterMessage {
 /// latency, packet loss, and healing between cluster nodes without real socket overhead.
 #[derive(Debug, Default)]
 pub struct VirtualNetwork {
-    mailboxes: Arc<RwLock<HashMap<ClusterNodeId, Arc<Mutex<VecDeque<(ClusterNodeId, ClusterMessage)>>>>>>,
+    mailboxes: Arc<RwLock<HashMap<ClusterNodeId, Arc<Mutex<VecDeque<(ClusterNodeId, SimulatedClusterMessage)>>>>>>,
     partitions: Arc<RwLock<HashSet<(ClusterNodeId, ClusterNodeId)>>>,
 }
 
@@ -162,7 +162,7 @@ impl VirtualNetwork {
 
     /// Send a message from `from` node to `to` node.
     /// Fails if a network partition separates `from` and `to`.
-    pub fn send(&self, from: ClusterNodeId, to: ClusterNodeId, msg: ClusterMessage) -> Result<()> {
+    pub fn send(&self, from: ClusterNodeId, to: ClusterNodeId, msg: SimulatedClusterMessage) -> Result<()> {
         if self.is_partitioned(from, to) {
             return Err(GraphError::ClusterError(format!(
                 "Network partition: connection severed between Node {from} and Node {to}"
@@ -180,7 +180,7 @@ impl VirtualNetwork {
     }
 
     /// Fetch all incoming messages for a given cluster node.
-    pub fn receive(&self, node_id: ClusterNodeId) -> Vec<(ClusterNodeId, ClusterMessage)> {
+    pub fn receive(&self, node_id: ClusterNodeId) -> Vec<(ClusterNodeId, SimulatedClusterMessage)> {
         let mailboxes = self.mailboxes.read().unwrap();
         if let Some(target_box) = mailboxes.get(&node_id) {
             let mut queue = target_box.lock().unwrap();
@@ -336,7 +336,7 @@ impl ClusterNode {
         let mut votes_granted = 1; // Self vote
         let last_log_index = self.log.len() as u64;
 
-        let req = ClusterMessage::RequestVote {
+        let req = SimulatedClusterMessage::RequestVote {
             term: self.current_term,
             candidate_id: self.id,
             last_log_index,
@@ -344,8 +344,6 @@ impl ClusterNode {
 
         for &peer in &self.peers {
             if self.network.send(self.id, peer, req.clone()).is_ok() {
-                // If the message was delivered through the network, the peer processes vote
-                // In our synchronous simulation, we check if peer can vote
                 if !self.network.is_partitioned(self.id, peer) {
                     votes_granted += 1;
                 }
@@ -355,7 +353,6 @@ impl ClusterNode {
         if votes_granted >= self.quorum_threshold() {
             self.role = ClusterRole::Leader;
             self.current_leader = Some(self.id);
-            // Broadcast initial heartbeat to notify followers
             self.broadcast_heartbeat()?;
             Ok(true)
         } else {
@@ -371,7 +368,7 @@ impl ClusterNode {
         }
 
         let mut acks = 1; // self
-        let heartbeat = ClusterMessage::AppendEntries {
+        let heartbeat = SimulatedClusterMessage::AppendEntries {
             term: self.current_term,
             leader_id: self.id,
             entries: Vec::new(),
@@ -388,15 +385,6 @@ impl ClusterNode {
     }
 
     /// Execute a replicated write command across the cluster.
-    ///
-    /// - **In CP Mode**:
-    ///   - Checks if caller is the Leader.
-    ///   - Requires a strict majority quorum ($> N/2$) of acknowledgments before committing.
-    ///   - If quorum cannot be reached (e.g. isolated on a minority partition), the write is REJECTED
-    ///     with [`GraphError::QuorumUnavailable`], strictly preventing split-brain.
-    /// - **In AP Mode**:
-    ///   - Immediately accepted by any node on any partition (100% available).
-    ///   - Applied to local state machine and gossiped to any reachable peers.
     pub fn write(&mut self, cmd: ClusterCommand) -> Result<u64> {
         match self.mode {
             ClusterMode::CP => self.write_cp(cmd),
@@ -418,33 +406,28 @@ impl ClusterNode {
             command: cmd,
         };
 
-        // Attempt replication across peers
         let mut acks = 1; // Self ack
-        let msg = ClusterMessage::AppendEntries {
+        let msg = SimulatedClusterMessage::AppendEntries {
             term: self.current_term,
             leader_id: self.id,
             entries: vec![entry.clone()],
             leader_commit: self.commit_index,
         };
 
-        let mut reachable_peers = Vec::new();
         for &peer in &self.peers {
             if self.network.send(self.id, peer, msg.clone()).is_ok() {
                 acks += 1;
-                reachable_peers.push(peer);
             }
         }
 
         let quorum = self.quorum_threshold();
         if acks < quorum {
-            // Quorum lost! Reject write to maintain strict consistency and prevent split-brain.
             return Err(GraphError::QuorumUnavailable(format!(
                 "Majority quorum lost: only {acks}/{} nodes reachable (needed {quorum}). Write rejected to preserve consistency (CAP theorem CP guarantee).",
                 self.cluster_size()
             )));
         }
 
-        // Quorum achieved! Append to leader log, advance commit index, and apply to graph.
         self.log.push(entry.clone());
         self.commit_index = new_index;
         apply_command_to_graph(&mut self.graph, &entry.command)?;
@@ -471,11 +454,9 @@ impl ClusterNode {
         self.log.push(entry.clone());
         self.commit_index = new_index;
 
-        // Apply immediately to local graph: 100% Availability guarantee
         apply_command_to_graph(&mut self.graph, &entry.command)?;
 
-        // Gossip to any reachable peers
-        let gossip = ClusterMessage::GossipEntries {
+        let gossip = SimulatedClusterMessage::GossipEntries {
             node_id: self.id,
             entries: vec![entry],
         };
@@ -494,7 +475,7 @@ impl ClusterNode {
 
         for (sender, msg) in messages {
             match msg {
-                ClusterMessage::RequestVote { term, candidate_id, .. } => {
+                SimulatedClusterMessage::RequestVote { term, candidate_id, .. } => {
                     let grant = if term > self.current_term {
                         self.current_term = term;
                         self.role = ClusterRole::Follower;
@@ -507,7 +488,7 @@ impl ClusterNode {
                         false
                     };
 
-                    let resp = ClusterMessage::RequestVoteResponse {
+                    let resp = SimulatedClusterMessage::RequestVoteResponse {
                         term: self.current_term,
                         voter_id: self.id,
                         vote_granted: grant,
@@ -515,7 +496,7 @@ impl ClusterNode {
                     let _ = self.network.send(self.id, sender, resp);
                 }
 
-                ClusterMessage::AppendEntries { term, leader_id, entries, leader_commit } => {
+                SimulatedClusterMessage::AppendEntries { term, leader_id, entries, leader_commit } => {
                     if term >= self.current_term {
                         self.current_term = term;
                         self.role = ClusterRole::Follower;
@@ -533,9 +514,8 @@ impl ClusterNode {
                     }
                 }
 
-                ClusterMessage::GossipEntries { entries, .. } => {
+                SimulatedClusterMessage::GossipEntries { entries, .. } => {
                     for entry in entries {
-                        // Anti-entropy merge: skip if already present
                         let already_present = self.log.iter().any(|e| {
                             e.origin_node == entry.origin_node
                                 && e.timestamp == entry.timestamp
@@ -558,7 +538,6 @@ impl ClusterNode {
     }
 
     /// Perform full anti-entropy synchronization with peers after a network partition has healed.
-    /// In AP mode, this synchronizes missing log entries across previously isolated partitions.
     pub fn anti_entropy_sync(&mut self, peer_entries: &[LogEntry]) -> Result<usize> {
         let mut applied = 0;
         for entry in peer_entries {

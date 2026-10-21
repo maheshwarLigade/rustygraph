@@ -92,7 +92,6 @@ impl SnapshotManager {
     /// Lists all detected snapshots in the directory.
     pub fn list_snapshots(&self) -> Result<Vec<SnapshotMetadata>> {
         let mut list = Vec::new();
-
         if !self.dir.exists() {
             return Ok(list);
         }
