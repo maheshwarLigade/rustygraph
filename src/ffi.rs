@@ -194,21 +194,17 @@ pub unsafe extern "C" fn rusty_graph_delete_edge(ptr: *mut Graph, rel_id: u64) -
 // =============================================================================
 
 /// Execute a Cypher query string against the graph.
-/// Returns a JSON string formatted as `{"success": bool, "columns": [...], "rows": [...], "error": ...}`.
-/// The caller must free the returned string using `rusty_graph_string_free`.
+/// Writes a newly allocated JSON string pointer into `out_result`.
+/// Returns 0 on success, -1 on invalid arguments.
+/// The caller must free the string using `rusty_graph_string_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rusty_graph_cypher(
     ptr: *mut Graph,
     query: *const c_char,
-) -> *mut c_char {
-    if ptr.is_null() {
-        let err_resp = CypherJsonResponse {
-            success: false,
-            columns: Vec::new(),
-            rows: Vec::new(),
-            error: Some("Null graph pointer provided".to_string()),
-        };
-        return str_to_c_string(serde_json::to_string(&err_resp).unwrap());
+    out_result: *mut *mut c_char,
+) -> c_int {
+    if ptr.is_null() || out_result.is_null() {
+        return -1;
     }
 
     let graph = unsafe { &mut *ptr };
@@ -221,7 +217,8 @@ pub unsafe extern "C" fn rusty_graph_cypher(
                 rows: Vec::new(),
                 error: Some("Null query string provided".to_string()),
             };
-            return str_to_c_string(serde_json::to_string(&err_resp).unwrap());
+            unsafe { *out_result = str_to_c_string(serde_json::to_string(&err_resp).unwrap()) };
+            return 0;
         }
     };
 
@@ -233,7 +230,8 @@ pub unsafe extern "C" fn rusty_graph_cypher(
                 rows: result.rows,
                 error: None,
             };
-            str_to_c_string(serde_json::to_string(&resp).unwrap())
+            unsafe { *out_result = str_to_c_string(serde_json::to_string(&resp).unwrap()) };
+            0
         }
         Err(e) => {
             let resp = CypherJsonResponse {
@@ -242,7 +240,8 @@ pub unsafe extern "C" fn rusty_graph_cypher(
                 rows: Vec::new(),
                 error: Some(e.to_string()),
             };
-            str_to_c_string(serde_json::to_string(&resp).unwrap())
+            unsafe { *out_result = str_to_c_string(serde_json::to_string(&resp).unwrap()) };
+            0
         }
     }
 }
@@ -295,7 +294,8 @@ pub unsafe extern "C" fn rusty_graph_create_vector_index(
 }
 
 /// Query a vector index for top-k nearest neighbors matching query vector.
-/// Returns a JSON string array of `[{"node_id": u64, "score": f32}, ...]`.
+/// Writes a JSON string array of `[{"node_id": u64, "score": f32}, ...]` into `out_result`.
+/// Returns 0 on success, -1 on error.
 /// Must be freed using `rusty_graph_string_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rusty_graph_query_vector_index(
@@ -304,15 +304,19 @@ pub unsafe extern "C" fn rusty_graph_query_vector_index(
     k: usize,
     vec_ptr: *const f32,
     vec_len: usize,
-) -> *mut c_char {
-    if ptr.is_null() || vec_ptr.is_null() {
-        return str_to_c_string("[]".to_string());
+    out_result: *mut *mut c_char,
+) -> c_int {
+    if ptr.is_null() || vec_ptr.is_null() || out_result.is_null() {
+        return -1;
     }
     let graph = unsafe { &*ptr };
 
     let index_name = match unsafe { c_str_to_str(name) } {
         Some(s) => s,
-        None => return str_to_c_string("[]".to_string()),
+        None => {
+            unsafe { *out_result = str_to_c_string("[]".to_string()) };
+            return -1;
+        }
     };
 
     let query_vec = unsafe { std::slice::from_raw_parts(vec_ptr, vec_len) };
@@ -326,9 +330,13 @@ pub unsafe extern "C" fn rusty_graph_query_vector_index(
                     score: h.score,
                 })
                 .collect();
-            str_to_c_string(serde_json::to_string(&json_hits).unwrap())
+            unsafe { *out_result = str_to_c_string(serde_json::to_string(&json_hits).unwrap()) };
+            0
         }
-        Err(_) => str_to_c_string("[]".to_string()),
+        Err(_) => {
+            unsafe { *out_result = str_to_c_string("[]".to_string()) };
+            -1
+        }
     }
 }
 
@@ -336,17 +344,24 @@ pub unsafe extern "C" fn rusty_graph_query_vector_index(
 // JSON Persistence Import & Export
 // =============================================================================
 
-/// Export the graph to a JSON dump string.
+/// Export the graph to a JSON dump string written to `out_result`.
+/// Returns 0 on success, -1 on error.
 /// Must be freed using `rusty_graph_string_free`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn rusty_graph_to_json(ptr: *const Graph) -> *mut c_char {
-    if ptr.is_null() {
-        return std::ptr::null_mut();
+pub unsafe extern "C" fn rusty_graph_to_json(
+    ptr: *const Graph,
+    out_result: *mut *mut c_char,
+) -> c_int {
+    if ptr.is_null() || out_result.is_null() {
+        return -1;
     }
     let graph = unsafe { &*ptr };
     match graph.to_json() {
-        Ok(json_str) => str_to_c_string(json_str),
-        Err(_) => std::ptr::null_mut(),
+        Ok(json_str) => {
+            unsafe { *out_result = str_to_c_string(json_str) };
+            0
+        }
+        Err(_) => -1,
     }
 }
 

@@ -74,7 +74,7 @@ public class RustyGraph implements AutoCloseable {
         );
         RUSTY_GRAPH_CYPHER = LINKER.downcallHandle(
             LOOKUP.find("rusty_graph_cypher").orElseThrow(),
-            FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
         );
         RUSTY_GRAPH_CREATE_VECTOR_INDEX = LINKER.downcallHandle(
             LOOKUP.find("rusty_graph_create_vector_index").orElseThrow(),
@@ -82,11 +82,11 @@ public class RustyGraph implements AutoCloseable {
         );
         RUSTY_GRAPH_QUERY_VECTOR_INDEX = LINKER.downcallHandle(
             LOOKUP.find("rusty_graph_query_vector_index").orElseThrow(),
-            FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG)
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS)
         );
         RUSTY_GRAPH_TO_JSON = LINKER.downcallHandle(
             LOOKUP.find("rusty_graph_to_json").orElseThrow(),
-            FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
         );
         RUSTY_GRAPH_FROM_JSON = LINKER.downcallHandle(
             LOOKUP.find("rusty_graph_from_json").orElseThrow(),
@@ -233,7 +233,12 @@ public class RustyGraph implements AutoCloseable {
         checkOpen();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment cQuery = arena.allocateUtf8String(query);
-            MemorySegment resultPtr = (MemorySegment) RUSTY_GRAPH_CYPHER.invokeExact(graphPtr, cQuery);
+            MemorySegment outPtr = arena.allocate(ValueLayout.ADDRESS);
+            int res = (int) RUSTY_GRAPH_CYPHER.invokeExact(graphPtr, cQuery, outPtr);
+            if (res != 0) {
+                return new CypherResult(false, List.of(), List.of(), "Cypher execution error");
+            }
+            MemorySegment resultPtr = outPtr.get(ValueLayout.ADDRESS, 0);
             if (resultPtr.equals(MemorySegment.NULL)) {
                 return new CypherResult(false, List.of(), List.of(), "Null result pointer from engine");
             }
@@ -286,11 +291,17 @@ public class RustyGraph implements AutoCloseable {
             for (int i = 0; i < queryVector.length; i++) {
                 vecSeg.setAtIndex(ValueLayout.JAVA_FLOAT, i, queryVector[i]);
             }
+            MemorySegment outPtr = arena.allocate(ValueLayout.ADDRESS);
 
-            MemorySegment resultPtr = (MemorySegment) RUSTY_GRAPH_QUERY_VECTOR_INDEX.invokeExact(
-                graphPtr, cName, (long) k, vecSeg, (long) queryVector.length
+            int res = (int) RUSTY_GRAPH_QUERY_VECTOR_INDEX.invokeExact(
+                graphPtr, cName, (long) k, vecSeg, (long) queryVector.length, outPtr
             );
 
+            if (res != 0) {
+                return List.of();
+            }
+
+            MemorySegment resultPtr = outPtr.get(ValueLayout.ADDRESS, 0);
             if (resultPtr.equals(MemorySegment.NULL)) {
                 return List.of();
             }
@@ -311,8 +322,13 @@ public class RustyGraph implements AutoCloseable {
      */
     public String toJson() {
         checkOpen();
-        try {
-            MemorySegment strPtr = (MemorySegment) RUSTY_GRAPH_TO_JSON.invokeExact(graphPtr);
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment outPtr = arena.allocate(ValueLayout.ADDRESS);
+            int res = (int) RUSTY_GRAPH_TO_JSON.invokeExact(graphPtr, outPtr);
+            if (res != 0) {
+                throw new RuntimeException("Failed to serialize graph to JSON");
+            }
+            MemorySegment strPtr = outPtr.get(ValueLayout.ADDRESS, 0);
             if (strPtr.equals(MemorySegment.NULL)) {
                 throw new RuntimeException("Failed to serialize graph to JSON");
             }

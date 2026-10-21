@@ -17,8 +17,8 @@ typedef struct Graph Graph;
 
 // Lifecycle
 Graph* rusty_graph_new(void);
-void rusty_graph_free(Graph* ptr);
-void rusty_graph_string_free(char* ptr);
+void   rusty_graph_free(Graph* ptr);
+void   rusty_graph_string_free(char* ptr);
 
 // Statistics
 uint64_t rusty_graph_node_count(const Graph* ptr);
@@ -31,18 +31,20 @@ uint64_t rusty_graph_create_edge(Graph* ptr, uint64_t source, uint64_t target, c
 int32_t  rusty_graph_delete_edge(Graph* ptr, uint64_t rel_id);
 
 // Cypher Queries
-// Returns JSON string: {"success": bool, "columns": [...], "rows": [...], "error": ...}
-char* rusty_graph_cypher(Graph* ptr, const char* query);
+// Writes JSON string into *out_result: {"success": bool, "columns": [...], "rows": [...], "error": ...}
+// Returns 0 on success, -1 on error.
+int32_t rusty_graph_cypher(Graph* ptr, const char* query, char** out_result);
 
 // Vector Database & Nearest Neighbor Search
 // metric: 0 = Cosine, 1 = Euclidean, 2 = DotProduct
 int32_t rusty_graph_create_vector_index(Graph* ptr, const char* name, const char* label, const char* prop_key, size_t dimension, uint32_t metric);
-// Returns JSON string array: [{"node_id": u64, "score": f32}, ...]
-char*   rusty_graph_query_vector_index(const Graph* ptr, const char* name, size_t k, const float* vec_ptr, size_t vec_len);
+// Writes JSON string array into *out_result: [{"node_id": u64, "score": f32}, ...]
+// Returns 0 on success, -1 on error.
+int32_t rusty_graph_query_vector_index(const Graph* ptr, const char* name, size_t k, const float* vec_ptr, size_t vec_len, char** out_result);
 
 // Persistence
-char*  rusty_graph_to_json(const Graph* ptr);
-Graph* rusty_graph_from_json(const char* json_str);
+int32_t rusty_graph_to_json(const Graph* ptr, char** out_result);
+Graph*  rusty_graph_from_json(const char* json_str);
 
 #ifdef __cplusplus
 }
