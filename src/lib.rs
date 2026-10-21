@@ -40,6 +40,10 @@
 //!     let people = graph.nodes_with_label("Person");
 //!     assert_eq!(people.len(), 2);
 //!
+//!     // Fluent path traversal
+//!     let paths = graph.traverse(alice).outgoing().with_type("KNOWS").paths();
+//!     assert_eq!(paths.len(), 2); // depth 0 (start) and depth 1 (to bob)
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -51,6 +55,7 @@ pub mod index;
 pub mod model;
 pub mod stats;
 pub mod storage;
+pub mod traversal;
 pub mod value;
 
 /// Convenient re-exports of common types.
@@ -61,6 +66,7 @@ pub mod prelude {
     pub use crate::index::{IndexKey, IndexManager, PropertyIndex};
     pub use crate::model::{Direction, Node, Properties, Relationship};
     pub use crate::stats::GraphStats;
+    pub use crate::traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
     pub use crate::value::PropertyValue;
 }
 
@@ -70,6 +76,7 @@ pub use id::{NodeId, RelId};
 pub use index::{IndexKey, IndexManager, PropertyIndex};
 pub use model::{Direction, Node, Properties, Relationship};
 pub use stats::GraphStats;
+pub use traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
 pub use value::PropertyValue;
 
 #[cfg(test)]
@@ -359,6 +366,91 @@ mod tests {
         assert_eq!(stats.type_counts.get("COMMUNICATES"), Some(&1));
         assert_eq!(stats.type_counts.get("HEARTBEAT"), Some(&1));
         assert!(stats.density > 0.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_fluent_traversal_engine() -> Result<()> {
+        let mut graph = Graph::new();
+
+        // Build a pipeline: A -> B -> C -> D and B -> E
+        let a = graph.create_node_with(|n| { n.set_prop("name", "A"); })?;
+        let b = graph.create_node_with(|n| { n.set_prop("name", "B"); })?;
+        let c = graph.create_node_with(|n| { n.set_prop("name", "C"); })?;
+        let d = graph.create_node_with(|n| { n.set_prop("name", "D"); })?;
+        let e = graph.create_node_with(|n| { n.set_prop("name", "E"); })?;
+
+        graph.create_edge(a, b, "NEXT")?;
+        graph.create_edge(b, c, "NEXT")?;
+        graph.create_edge(c, d, "NEXT")?;
+        graph.create_edge(b, e, "BRANCH")?;
+
+        // 1. Variable depth traversal: from A with min_depth=1, max_depth=2, type="NEXT"
+        let paths_1_to_2 = graph
+            .traverse(a)
+            .outgoing()
+            .with_type("NEXT")
+            .min_depth(1)
+            .max_depth(2)
+            .paths();
+
+        // Should find: (A)->(B) (depth 1), and (A)->(B)->(C) (depth 2)
+        assert_eq!(paths_1_to_2.len(), 2);
+        assert_eq!(paths_1_to_2[0].end_node(), b);
+        assert_eq!(paths_1_to_2[1].end_node(), c);
+
+        // 2. Distinct nodes reachable from A at any depth following "NEXT"
+        let reachable = graph.traverse(a).outgoing().with_type("NEXT").nodes();
+        assert_eq!(reachable, vec![a, b, c, d]);
+
+        // 3. Traversal with multiple types: ("NEXT" and "BRANCH")
+        let branch_paths = graph
+            .traverse(b)
+            .outgoing()
+            .with_types(["NEXT", "BRANCH"])
+            .min_depth(1)
+            .max_depth(1)
+            .paths();
+        assert_eq!(branch_paths.len(), 2);
+        let end_nodes: Vec<_> = branch_paths.iter().map(|p| p.end_node()).collect();
+        assert!(end_nodes.contains(&c));
+        assert!(end_nodes.contains(&e));
+
+        // 4. Reverse (incoming) traversal from D
+        let incoming_to_d = graph.traverse(d).incoming().min_depth(1).max_depth(1).nodes();
+        assert_eq!(incoming_to_d, vec![c]);
+
+        // 5. Undirected / Both traversal from B
+        let both_from_b = graph.traverse(b).both().min_depth(1).max_depth(1).nodes();
+        assert_eq!(both_from_b.len(), 3); // A (incoming), C (outgoing), E (outgoing)
+        assert!(both_from_b.contains(&a));
+        assert!(both_from_b.contains(&c));
+        assert!(both_from_b.contains(&e));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_traversal_cycle_prevention() -> Result<()> {
+        let mut graph = Graph::new();
+
+        // Create triangle cycle: X -> Y -> Z -> X
+        let x = graph.create_node();
+        let y = graph.create_node();
+        let z = graph.create_node();
+
+        graph.create_edge(x, y, "CYCLE")?;
+        graph.create_edge(y, z, "CYCLE")?;
+        graph.create_edge(z, x, "CYCLE")?;
+
+        // With default Uniqueness::Node, traversal from X should never loop infinitely
+        let paths = graph.traverse(x).outgoing().paths();
+        // Depth 0: (X)
+        // Depth 1: (X)->(Y)
+        // Depth 2: (X)->(Y)->(Z)
+        // From Z, the only edge goes to X which is already in the path, so it halts!
+        assert_eq!(paths.len(), 3);
 
         Ok(())
     }

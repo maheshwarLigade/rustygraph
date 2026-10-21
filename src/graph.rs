@@ -746,6 +746,20 @@ impl Graph {
         }
     }
 
+    // =========================================================================
+    // Fluent Traversal
+    // =========================================================================
+
+    /// Create a fluent traversal starting from the given node.
+    pub fn traverse(&self, start: NodeId) -> crate::traversal::Traverser<'_> {
+        crate::traversal::Traverser::new(self, start)
+    }
+
+    /// Create a fluent traversal starting from multiple nodes.
+    pub fn traverse_many(&self, starts: Vec<NodeId>) -> crate::traversal::Traverser<'_> {
+        crate::traversal::Traverser::from_nodes(self, starts)
+    }
+
     /// Clear the entire graph, removing all nodes, relationships, and index entries.
     pub fn clear(&mut self) {
         self.nodes.clear();
