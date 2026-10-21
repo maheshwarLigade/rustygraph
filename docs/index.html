@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RustyGraph Docs | High-Performance Standalone Distributed Graph Database</title>
+  <meta name="description" content="RustyGraph is an ultra-fast, standalone distributed property graph database library written in pure Rust. Native openCypher mutations, ACID snapshot transactions, vector GraphRAG, and configurable CP/AP clustering.">
+  <link rel="icon" type="image/jpeg" href="assets/logo.jpg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-left">
+      <a href="#" class="nav-logo">
+        <img src="assets/logo.jpg" alt="RustyGraph Crab Logo">
+        <span>RustyGraph</span>
+      </a>
+      <span class="nav-badge">v0.1.0</span>
+      <div class="nav-search">
+        <input type="text" id="docSearchInput" placeholder="Search documentation...">
+        <span class="search-key">Ctrl+K</span>
+      </div>
+    </div>
+
+    <div class="nav-right">
+      <ul class="nav-links">
+        <li><a href="#playground">Playground</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#cypher">Cypher</a></li>
+        <li><a href="#transactions">Transactions</a></li>
+        <li><a href="#gds">Algorithms</a></li>
+        <li><a href="#vector-rag">GraphRAG</a></li>
+        <li><a href="#rest-api">REST API</a></li>
+      </ul>
+
+      <button id="themeToggle" class="btn-icon" title="Toggle theme">🌓</button>
+      <a href="https://github.com/maheshwarLigade/rustygraph" target="_blank" rel="noopener" class="btn-github">
+        <span>GitHub</span> ★
+      </a>
+    </div>
+  </header>
+
+  <!-- Docs Layout: Sidebar + Main Content -->
+  <div class="docs-layout">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="#hero">Overview</a></li>
+          <li><a href="#quickstart">Quickstart & Installation</a></li>
+          <li><a href="#playground">Interactive Playground <span class="sidebar-tag">Live</span></a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Core Engine</div>
+        <ul class="sidebar-nav">
+          <li><a href="#architecture">Storage & Memory Model</a></li>
+          <li><a href="#cypher">openCypher & Mutations</a></li>
+          <li><a href="#transactions">ACID Transactions <span class="sidebar-tag">New</span></a></li>
+          <li><a href="#indexing">Indices & Constraints</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Analytics & Intelligence</div>
+        <ul class="sidebar-nav">
+          <li><a href="#gds">Graph Data Science (GDS)</a></li>
+          <li><a href="#vector-rag">Vector Search & GraphRAG</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Distributed & Standalone</div>
+        <ul class="sidebar-nav">
+          <li><a href="#server-daemon">Standalone Daemon Server</a></li>
+          <li><a href="#rest-api">HTTP REST API Reference</a></li>
+          <li><a href="#cli-repl">Interactive CLI REPL</a></li>
+          <li><a href="#clustering">Clustering & CAP Theorem</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Client Bindings</div>
+        <ul class="sidebar-nav">
+          <li><a href="#sdk-go">Go SDK (CGO-free)</a></li>
+          <li><a href="#sdk-java">Java 21 SDK (FFM API)</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Main Documentation Area -->
+    <main class="docs-main">
+
+      <!-- Hero Section -->
+      <section id="hero" class="hero">
+        <div class="hero-pill">
+          <span class="hero-pill-spark"></span>
+          <span>v0.1.0 • Pure Rust • Standalone NoSQL Distributed Property Graph</span>
+        </div>
+
+        <h1 class="hero-title">
+          The Ultra-Fast, Standalone Distributed <span class="highlight-rust">Graph Database</span> in <span class="highlight-cyan">Rust</span>.
+        </h1>
+
+        <p class="hero-subtitle">
+          Inspired by Neo4j's labeled property graph model with zero external dependencies. Enjoy $O(1)$ generational memory lookups, native openCypher mutations, ACID snapshot transactions, vector similarity GraphRAG, and configurable CP/AP distributed clustering.
+        </p>
+
+        <div class="hero-actions">
+          <a href="#quickstart" class="btn btn-primary">⚡ Get Started</a>
+          <a href="#playground" class="btn btn-secondary">🎮 Try Live Playground</a>
+          <a href="https://github.com/maheshwarLigade/rustygraph" target="_blank" rel="noopener" class="btn btn-secondary">⭐ Star on GitHub</a>
+        </div>
+
+        <div class="hero-banner-container">
+          <img src="assets/banner.jpg" alt="RustyGraph Interconnected Network Visualization">
+        </div>
+
+        <div class="hero-stats-bar">
+          <div class="hero-stat-card">
+            <div class="val">O(1)</div>
+            <div class="lbl">Arena Generational Access</div>
+          </div>
+          <div class="hero-stat-card rust">
+            <div class="val">0</div>
+            <div class="lbl">External C/C++ Dependencies</div>
+          </div>
+          <div class="hero-stat-card">
+            <div class="val">ACID</div>
+            <div class="lbl">Multi-Statement Transactions</div>
+          </div>
+          <div class="hero-stat-card rust">
+            <div class="val">85 / 85</div>
+            <div class="lbl">Verified Tests Passing</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quickstart Section -->
+      <section id="quickstart" class="doc-section">
+        <div class="section-tag">Quickstart</div>
+        <h2 class="section-title">Installation & Quickstart</h2>
+        <p class="lead-p">
+          Use RustyGraph as an embedded library inside your Rust application, or run it as a standalone NoSQL server daemon with multi-threaded REST and interactive CLI clients.
+        </p>
+
+        <div class="tab-group">
+          <button class="tab-btn active">Cargo (Library)</button>
+          <button class="tab-btn">Server Daemon</button>
+          <button class="tab-btn">Interactive CLI</button>
+          <button class="tab-btn">Go SDK</button>
+          <button class="tab-btn">Java 21 SDK</button>
+        </div>
+
+        <!-- Cargo Tab -->
+        <div class="tab-content active">
+          <div class="code-container">
+            <div class="code-header">
+              <span class="code-lang-label">Cargo.toml</span>
+              <button class="btn-copy">Copy</button>
+            </div>
+            <pre><code>[dependencies]
+rusty_graph = { git = "https://github.com/maheshwarLigade/rustygraph.git" }</code></pre>
+          </div>
+
+          <div class="code-container">
+            <div class="code-header">
+              <span class="code-lang-label">main.rs</span>
+              <button class="btn-copy">Copy</button>
+            </div>
+            <pre><code>use rusty_graph::prelude::*;
+
+fn main() -> Result<()> {
+    let mut graph = Graph::new();
+
+    // 1. Create nodes with labels and rich properties
+    let alice = graph.create_node_with(|n| {
+        n.add_label("Person");
+        n.set_prop("name", "Alice");
+        n.set_prop("age", 30);
+    })?;
+
+    let bob = graph.create_node_with(|n| {
+        n.add_label("Person");
+        n.set_prop("name", "Bob");
+        n.set_prop("age", 28);
+    })?;
+
+    // 2. Create directed relationship
+    graph.create_edge_with(alice, bob, "KNOWS", |r| {
+        r.set_prop("since", 2021);
+    })?;
+
+    // 3. Execute native openCypher query!
+    let res = graph.cypher("MATCH (p:Person)-[:KNOWS]->(f:Person) WHERE f.age < 30 RETURN p.name, f.name")?;
+    println!("Found {} friend connection(s)", res.rows.len());
+
+    Ok(())
+}</code></pre>
+          </div>
+        </div>
+
+        <!-- Server Daemon Tab -->
+        <div class="tab-content">
+          <p>Launch the high-performance HTTP REST daemon with persistent Write-Ahead Logging:</p>
+          <div class="code-container">
+            <div class="code-header">
+              <span class="code-lang-label">Terminal</span>
+              <button class="btn-copy">Copy</button>
+            </div>
+            <pre><code># Start Standalone Server on port 8000
+cargo run --bin rustygraph-server -- --http 0.0.0.0:8000 --data ./data --fsync always</code></pre>
+          </div>
+        </div>
+
+        <!-- Interactive CLI Tab -->
+        <div class="tab-content">
+          <p>Connect with the interactive Cypher terminal client:</p>
+          <div class="code-container">
+            <div class="code-header">
+              <span class="code-lang-label">Terminal</span>
+              <button class="btn-copy">Copy</button>
+            </div>
+            <pre><code># Launch REPL client
+cargo run --bin rustygraph-cli -- --server http://127.0.0.1:8000
+
+# Execute Cypher directly or start an ACID transaction
+rustygraph> :begin
+⚡ Transaction 1 started (snapshot isolation active).
+rustygraph (tx:1)> CREATE (u:User {name: 'Alice', role: 'admin'})
+(1 row in 1.1ms)
+rustygraph (tx:1)> :commit
+✅ Transaction 1 committed successfully to WAL and live database.</code></pre>
+          </div>
+        </div>
+
+        <!-- Go SDK Tab -->
+        <div class="tab-content">
+          <p>Native Go SDK using dynamic linking with 0 CGO overhead:</p>
+          <div class="code-container">
+            <div class="code-header">
+              <span class="code-lang-label">Go</span>
+              <button class="btn-copy">Copy</button>
+            </div>
+            <pre><code>package main
+
+import (
+    "fmt"
+    "github.com/mahesh/rusty-graph/bindings/go/rustygraph"
+)
+
+func main() {
+    client, err := rustygraph.NewClient("./librusty_graph.so")
+    if err != nil { panic(err) }
+    defer client.Close()
+
+    g, _ := client.CreateGraph()
+    defer g.Free()
+
+    alice, _ := g.CreateNode("Person", `{"name": "Alice", "age": 30}`)
+    bob, _ := g.CreateNode("Person", `{"name": "Bob", "age": 28}`)
+    g.CreateEdge(alice, bob, "KNOWS", `{"since": 2021}`)
+
+    res, _ := g.Cypher("MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a.name, b.name")
+    fmt.Println(res)
+}</code></pre>
+          </div>
+        </div>
+
+        <!-- Java SDK Tab -->
+        <div class="tab-content">
+          <p>Modern Java 21+ SDK utilizing Project Panama Foreign Function & Memory (FFM) API:</p>
+          <div class="code-container">
+            <div class="code-header">
+              <span class="code-lang-label">Java 21</span>
+              <button class="btn-copy">Copy</button>
+            </div>
+            <pre><code>import com.rustygraph.RustyGraph;
+
+public class App {
+    public static void main(String[] args) {
+        try (var graph = RustyGraph.open()) {
+            long u1 = graph.createNode("User", "{\"name\": \"Alice\"}");
+            long u2 = graph.createNode("User", "{\"name\": \"Bob\"}");
+            graph.createEdge(u1, u2, "FOLLOWS", "{\"since\": 2024}");
+
+            String cypherJson = graph.cypher("MATCH (a:User)-[:FOLLOWS]->(b:User) RETURN a.name, b.name");
+            System.out.println(cypherJson);
+        }
+    }
+}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Interactive Playground Section -->
+      <section id="playground" class="doc-section">
+        <div class="section-tag">Interactive Demo</div>
+        <h2 class="section-title">Live Cypher & Transaction Playground</h2>
+        <p class="lead-p">
+          Interact directly with RustyGraph's in-memory graph engine right in your browser. Run Cypher pattern matches, execute real-time mutations, test multi-statement ACID transactions, and drag nodes in the live canvas visualizer.
+        </p>
+
+        <div class="playground-card">
+          <div class="playground-header">
+            <div class="playground-title-area">
+              <span style="font-size: 1.25rem;">🦀</span>
+              <span style="font-weight: 700; color: var(--text-bright);">Cypher Visual Terminal</span>
+              <span id="txIndicator" class="tx-status-indicator">Live Database</span>
+            </div>
+
+            <div class="playground-presets">
+              <span style="font-size: 0.78rem; color: var(--text-dim); margin-right: 0.25rem;">Presets:</span>
+              <button class="preset-chip active" data-query="MATCH (p:Person)-[:KNOWS]->(f:Person) RETURN p.name, f.name, f.since">1. Friends Match</button>
+              <button class="preset-chip" data-query="CREATE (n:Person {name: 'Dave', age: 26})">2. Create Node</button>
+              <button class="preset-chip" data-query="MATCH (p:Person) RETURN count(*), avg(p.age), min(p.age), max(p.age)">3. Aggregations</button>
+              <button class="preset-chip" data-query=":begin">4. Transaction :begin</button>
+            </div>
+          </div>
+
+          <div class="playground-grid">
+            <!-- Left: Query Editor & Output -->
+            <div class="playground-editor-pane">
+              <div class="playground-input-box">
+                <div class="playground-prompt-header">
+                  <span>openCypher Statement or Meta-Command</span>
+                  <span>Press Run or Ctrl+Enter</span>
+                </div>
+                <textarea id="playgroundQuery" class="playground-textarea" spellcheck="false">MATCH (p:Person)-[:KNOWS]->(f:Person) RETURN p.name, f.name, f.since</textarea>
+                
+                <div class="playground-btn-row">
+                  <button id="runQueryBtn" class="btn-run">▶ Run Query</button>
+                  <button id="txBeginBtn" class="btn-tx">:begin</button>
+                  <button id="txCommitBtn" class="btn-tx">:commit</button>
+                  <button id="txRollbackBtn" class="btn-tx">:rollback</button>
+                </div>
+              </div>
+
+              <div class="playground-output-box" id="playgroundOutput">
+┌────────────┬────────────┬────────────┐
+│ p.name     │ friend.name│ since      │
+├────────────┼────────────┼────────────┤
+│ Alice      │ Bob        │ 2021       │
+│ Bob        │ Charlie    │ 2023       │
+└────────────┴────────────┴────────────┘
+(2 rows in 14.2 µs)
+              </div>
+            </div>
+
+            <!-- Right: Live Canvas Visualizer -->
+            <div class="playground-result-pane">
+              <div class="graph-canvas-container">
+                <canvas id="graphCanvas"></canvas>
+                <div class="canvas-overlay-legend">
+                  💡 Drag nodes to rearrange • Blue: Person • Orange: Server • Purple: Paper
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Architecture Section -->
+      <section id="architecture" class="doc-section">
+        <div class="section-tag">Architecture</div>
+        <h2 class="section-title">Generational Arena & Memory Model</h2>
+        <p class="lead-p">
+          RustyGraph avoids raw pointers and traditional graph garbage collection by implementing a contiguous generational slot arena with dense 64-bit identifiers.
+        </p>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <h4>Generational SlotArena</h4>
+            <p>Every node and relationship ID encodes an index and generation counter. Slot reuse is 100% memory-safe, completely preventing ABA problems and use-after-free bugs.</p>
+          </div>
+
+          <div class="feature-card rust">
+            <div class="feature-icon">📦</div>
+            <h4>Inline SmallVec Adjacency</h4>
+            <p>Each node stores incoming and outgoing relationship IDs in inline stack-allocated <code>SmallVec&lt;[RelId; 8]&gt;</code>. Nodes with degree &le; 8 allocate zero heap memory during traversal.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">💎</div>
+            <h4>Algebraic Property Values</h4>
+            <p>Rich enum system supporting <code>Null</code>, <code>Bool</code>, <code>Int</code>, <code>Float</code>, <code>String</code>, <code>Bytes</code>, <code>DateTime</code>, <code>List</code>, and <code>Map</code> with total ordering and JSON serde.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">💡</div>
+          <div class="callout-body">
+            <h5>Pointer-Free Graph Safety</h5>
+            <p>In standard graph database implementations, circular references cause pointer chasing and memory fragmentation. RustyGraph's generational arena enables $O(1)$ indexed dereferencing with zero pointer dereference hazards.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Cypher Section -->
+      <section id="cypher" class="doc-section">
+        <div class="section-tag">Query Engine</div>
+        <h2 class="section-title">openCypher Language & Mutations</h2>
+        <p class="lead-p">
+          RustyGraph includes a complete openCypher lexer, parser, and AST execution engine supporting both declarative reading and ACID mutations.
+        </p>
+
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Clause / Feature</th>
+                <th>Syntax Example</th>
+                <th>Behavior</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>MATCH</code></td>
+                <td><code>MATCH (a:User)-[:KNOWS]-&gt;(b:User)</code></td>
+                <td>Pattern matching across directed, incoming, or undirected graph relationships.</td>
+              </tr>
+              <tr>
+                <td><code>WHERE</code></td>
+                <td><code>WHERE u.age &gt;= 21 AND u.status = 'active'</code></td>
+                <td>Supports comparison operators (<code>=</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>) and logical <code>AND</code>.</td>
+              </tr>
+              <tr>
+                <td><code>CREATE</code></td>
+                <td><code>CREATE (n:Person {name: 'Alice'})-[:FOLLOWS]-&gt;(m:Person {name: 'Bob'})</code></td>
+                <td>Creates nodes and directed edges atomically in memory and persists to WAL.</td>
+              </tr>
+              <tr>
+                <td><code>SET</code></td>
+                <td><code>MATCH (p:Person {name: 'Alice'}) SET p.age = 31</code></td>
+                <td>Mutates properties on all matched node entities.</td>
+              </tr>
+              <tr>
+                <td><code>DELETE</code></td>
+                <td><code>MATCH (p:Person {name: 'Alice'}) DELETE p</code></td>
+                <td>Strict node deletion; fails if node has connected relationships.</td>
+              </tr>
+              <tr>
+                <td><code>DETACH DELETE</code></td>
+                <td><code>MATCH (p:Person {name: 'Alice'}) DETACH DELETE p</code></td>
+                <td>Cascading deletion; removes incident relationships, indexes, and vector embeddings.</td>
+              </tr>
+              <tr>
+                <td>Aggregations</td>
+                <td><code>RETURN count(*), sum(p.price), avg(p.price), min(p.price), max(p.price)</code></td>
+                <td>Full columnar aggregation calculations across matched query context.</td>
+              </tr>
+              <tr>
+                <td><code>ORDER BY</code> / <code>LIMIT</code></td>
+                <td><code>ORDER BY p.price DESC LIMIT 10</code></td>
+                <td>Sorts result rows ascending or descending with pagination limit.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Transactions Section -->
+      <section id="transactions" class="doc-section">
+        <div class="section-tag">ACID Guarantees</div>
+        <h2 class="section-title">Multi-Statement ACID Transactions</h2>
+        <p class="lead-p">
+          Execute transactional workloads with complete snapshot isolation. Staged writes remain private until commit, where they are atomically written to the Write-Ahead Log and applied to the live graph.
+        </p>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="feature-icon">🛡️</div>
+            <h4>Snapshot Isolation</h4>
+            <p>Every transaction receives a private, isolated copy of the graph. Dirty reads are strictly impossible for concurrent clients.</p>
+          </div>
+
+          <div class="feature-card rust">
+            <div class="feature-icon">💾</div>
+            <h4>WAL Durability & CRC32</h4>
+            <p>Committed transactions append atomic records verified with IEEE 802.3 CRC32 checksums. Automatic crash replay restores exact state upon reboot.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">⏱️</div>
+            <h4>Timeout & Background Reaper</h4>
+            <p>Transactions specify a maximum TTL (e.g. 30s). Abandoned or hung transactions are automatically aborted and reclaimed.</p>
+          </div>
+        </div>
+
+        <div class="code-container">
+          <div class="code-header">
+            <span class="code-lang-label">Rust Transaction Example</span>
+            <button class="btn-copy">Copy</button>
+          </div>
+          <pre><code>// 1. Begin multi-statement transaction with 15s timeout
+let tx_id = db.begin_transaction(Some(Duration::from_secs(15)))?;
+
+// 2. Stage multiple mutations inside transaction
+db.execute_tx(tx_id, "CREATE (u:User {name: 'Alice', balance: 500})")?;
+db.execute_tx(tx_id, "CREATE (u:User {name: 'Bob', balance: 200})")?;
+db.execute_tx(tx_id, "MATCH (u:User {name: 'Alice'}) SET u.balance = 400")?;
+
+// Live database queries see 0 new users (Complete Isolation!)
+let live_view = db.cypher("MATCH (u:User) RETURN u.name")?;
+assert_eq!(live_view.rows.len(), 0);
+
+// 3. Atomically commit to WAL and live database
+db.commit_transaction(tx_id)?;
+
+// Live database now reflects committed users
+let committed_view = db.cypher("MATCH (u:User) RETURN u.name")?;
+assert_eq!(committed_view.rows.len(), 2);</code></pre>
+        </div>
+      </section>
+
+      <!-- Graph Data Science Section -->
+      <section id="gds" class="doc-section">
+        <div class="section-tag">Analytics</div>
+        <h2 class="section-title">Graph Data Science (GDS) Algorithms</h2>
+        <p class="lead-p">
+          Native, highly optimized in-memory graph algorithms built directly into the engine:
+        </p>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="feature-icon">🗺️</div>
+            <h4>Dijkstra & A* Pathfinding</h4>
+            <p>Compute optimal weighted shortest paths with custom heuristics and edge property weights.</p>
+          </div>
+
+          <div class="feature-card rust">
+            <div class="feature-icon">📊</div>
+            <h4>PageRank Centrality</h4>
+            <p>Iterative power-method PageRank with configurable damping factor (&alpha; = 0.85) and convergence tolerance.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🌐</div>
+            <h4>Community Detection</h4>
+            <p>Weakly Connected Components (WCC via Disjoint-Set Union) and Strongly Connected Components (Tarjan's SCC).</p>
+          </div>
+
+          <div class="feature-card rust">
+            <div class="feature-icon">🧩</div>
+            <h4>Topological Sorting & Jaccard</h4>
+            <p>Kahn's DAG topological order validation and Jaccard similarity coefficient for entity recommendation.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Vector Database & GraphRAG Section -->
+      <section id="vector-rag" class="doc-section">
+        <div class="section-tag">AI & Search</div>
+        <h2 class="section-title">Vector Database & Relational GraphRAG</h2>
+        <p class="lead-p">
+          Seamlessly combine dense semantic vector embeddings with relational graph context for next-generation LLM retrieval.
+        </p>
+
+        <div class="code-container">
+          <div class="code-header">
+            <span class="code-lang-label">GraphRAG Example</span>
+            <button class="btn-copy">Copy</button>
+          </div>
+          <pre><code>// 1. Create a Vector Index on 'Paper' node embeddings using Cosine similarity
+graph.create_vector_index(
+    "paper_embeddings",
+    "Paper",
+    "embedding",
+    4, // 4-dimensional vectors
+    VectorSimilarity::Cosine,
+)?;
+
+// 2. Hybrid GraphRAG: Find top 2 nearest papers and expand 2 hops into citations & authors
+let query_vector = vec![0.75, 0.80, 0.85, 0.30];
+let rag_results = graph.vector_search_and_traverse(
+    "paper_embeddings",
+    &query_vector,
+    2, // top 2 seed documents
+    2, // expand 2 relational hops
+)?;
+
+for (hit, paths) in rag_results {
+    println!("Seed Document {} (Score: {:.4})", hit.node_id, hit.score);
+    for path in paths {
+        println!("  Subgraph context: {}", path);
+    }
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- REST API Section -->
+      <section id="rest-api" class="doc-section">
+        <div class="section-tag">HTTP API</div>
+        <h2 class="section-title">REST API Reference</h2>
+        <p class="lead-p">
+          The standalone daemon (<code>rustygraph-server</code>) exposes high-throughput JSON endpoints for Cypher, transactions, and administration.
+        </p>
+
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Endpoint</th>
+                <th>Description</th>
+                <th>Payload</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="badge-method badge-post">POST</span></td>
+                <td><code>/cypher</code></td>
+                <td>Execute openCypher query (reads or mutations)</td>
+                <td><code>{"query": "MATCH (n) RETURN n"}</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-post">POST</span></td>
+                <td><code>/tx/begin</code></td>
+                <td>Start multi-statement ACID transaction</td>
+                <td><code>{"timeout_ms": 30000}</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-post">POST</span></td>
+                <td><code>/tx/:id/cypher</code></td>
+                <td>Execute Cypher inside active transaction</td>
+                <td><code>{"query": "CREATE (u:User {name: 'Neo'})"}</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-post">POST</span></td>
+                <td><code>/tx/:id/commit</code></td>
+                <td>Commit transaction to WAL and live database</td>
+                <td><code>none</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-post">POST</span></td>
+                <td><code>/tx/:id/rollback</code></td>
+                <td>Rollback transaction, discarding staged changes</td>
+                <td><code>none</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-get">GET</span></td>
+                <td><code>/tx/list</code></td>
+                <td>List active transactions and remaining TTLs</td>
+                <td><code>none</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-get">GET</span></td>
+                <td><code>/stats</code></td>
+                <td>Retrieve nodes, edges, and WAL sequence metrics</td>
+                <td><code>none</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-post">POST</span></td>
+                <td><code>/vector/search</code></td>
+                <td>Top-k nearest neighbor vector search</td>
+                <td><code>{"index": "v", "k": 5, "vector": [...]}</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-post">POST</span></td>
+                <td><code>/checkpoint</code></td>
+                <td>Trigger immediate snapshot & WAL truncation</td>
+                <td><code>none</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-get">GET</span></td>
+                <td><code>/cluster/status</code></td>
+                <td>Cluster consensus state, leader, and peer nodes</td>
+                <td><code>none</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Distributed Clustering & CAP Section -->
+      <section id="clustering" class="doc-section">
+        <div class="section-tag">Clustering</div>
+        <h2 class="section-title">Distributed Clustering & CAP Theorem</h2>
+        <p class="lead-p">
+          RustyGraph provides configurable distributed consensus guarantees tailored to your consistency or availability requirements:
+        </p>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="feature-icon">⚖️</div>
+            <h4>CP Mode (Consistency)</h4>
+            <p>Strict majority quorum writes (&gt; N/2), term tracking, leader election, and automated write rejection on minority partitions to prevent split-brain.</p>
+          </div>
+
+          <div class="feature-card rust">
+            <div class="feature-icon">⚡</div>
+            <h4>AP Mode (High Availability)</h4>
+            <p>100% write availability across all partitions with Lamport logical timestamps and anti-entropy Last-Write-Wins (LWW) reconciliation upon healing.</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">
+        <img src="assets/logo.jpg" alt="RustyGraph">
+        <span>RustyGraph</span>
+      </div>
+      <p class="footer-text">
+        High-performance, in-memory, standalone distributed property graph database engine written in Rust.
+      </p>
+      <div class="footer-links">
+        <a href="https://github.com/maheshwarLigade/rustygraph" target="_blank" rel="noopener">GitHub Repository</a>
+        <a href="https://github.com/maheshwarLigade/rustygraph/blob/main/LICENSE" target="_blank" rel="noopener">Apache 2.0 License</a>
+        <a href="https://github.com/maheshwarLigade/rustygraph/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing Guide</a>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-dim);">
+        &copy; 2026 RustyGraph Contributors. Licensed under the Apache License, Version 2.0.
+      </p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
