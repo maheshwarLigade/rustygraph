@@ -401,7 +401,12 @@ rustygraph> :cluster
 
 | Method | Endpoint | Description | Sample Payload |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/cypher` | Execute an openCypher query | `{"query": "MATCH (n) RETURN n"}` |
+| `POST` | `/cypher` | Execute an openCypher query (reads or mutations) | `{"query": "MATCH (n) RETURN n"}` |
+| `POST` | `/tx/begin` | Begin a multi-statement ACID transaction | `{"timeout_ms": 30000}` |
+| `POST` | `/tx/:id/cypher` | Execute a Cypher query inside an active transaction | `{"query": "CREATE (u:User {name: 'Alice'})"}` |
+| `POST` | `/tx/:id/commit` | Commit transaction to WAL and live database | `none` |
+| `POST` | `/tx/:id/rollback` | Rollback transaction, discarding staged changes | `none` |
+| `GET` | `/tx/list` | List active transactions and remaining timeouts | `none` |
 | `GET` | `/health` | Server health check | `none` |
 | `GET` | `/stats` | Database nodes, edges, WAL metrics | `none` |
 | `POST` | `/nodes` | Create labeled node with properties | `{"labels": ["User"], "properties": {"name": "Alice"}}` |
@@ -435,6 +440,7 @@ rustygraph> :cluster
 | **Phase 8** | Distributed Cluster & CAP Theorem (Configurable CP/AP Modes, Split-Brain Prevention, Virtual Network) | ✅ Complete |
 | **Phase 9** | Multi-Language SDKs & C FFI (Native Go SDK via dynamic linking & Java 21 SDK via FFM) | ✅ Complete |
 | **Phase 10** | Standalone NoSQL Distributed Server & CLI (WAL Durability, TCP Clustering, REST API, REPL) | ✅ Complete |
+| **Phase 11** | Full Cypher Mutations & ACID Transactions (CREATE/SET/DELETE, Aggregations, Isolation, Timeout Reaping) | ✅ Complete |
 
 ---
 

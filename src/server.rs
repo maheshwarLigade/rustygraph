@@ -43,6 +43,11 @@ struct CypherRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct TxBeginRequest {
+    timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct CreateNodeRequest {
     #[serde(default)]
     labels: Vec<String>,
@@ -244,6 +249,107 @@ impl StandaloneServer {
                 } else {
                     HttpResponse::error(StatusCode(400), "Invalid JSON payload for /cypher (expected {\"query\": \"...\"})")
                 }
+            }
+
+            // ACID Transactions
+            (&Method::Post, "/tx/begin") => {
+                let timeout = if !body.is_empty() {
+                    serde_json::from_slice::<TxBeginRequest>(body)
+                        .ok()
+                        .and_then(|r| r.timeout_ms)
+                        .map(std::time::Duration::from_millis)
+                } else {
+                    None
+                };
+                match self.db.begin_transaction(timeout) {
+                    Ok(tx_id) => HttpResponse::json(&serde_json::json!({
+                        "success": true,
+                        "tx_id": tx_id,
+                        "timeout_ms": timeout.unwrap_or(std::time::Duration::from_secs(30)).as_millis() as u64,
+                        "message": format!("Transaction {} started with snapshot isolation", tx_id),
+                    })),
+                    Err(e) => HttpResponse::error(StatusCode(500), &e.to_string()),
+                }
+            }
+            (&Method::Post, p) if p.starts_with("/tx/") && p.ends_with("/cypher") => {
+                let parts: Vec<&str> = p.split('/').collect();
+                if parts.len() == 4 {
+                    if let Ok(tx_id) = parts[2].parse::<u64>() {
+                        if let Ok(req) = serde_json::from_slice::<CypherRequest>(body) {
+                            match self.db.execute_tx(tx_id, &req.query) {
+                                Ok(res) => HttpResponse::json(&serde_json::json!({
+                                    "success": true,
+                                    "tx_id": tx_id,
+                                    "columns": res.columns,
+                                    "rows": res.rows,
+                                    "error": null,
+                                })),
+                                Err(e) => HttpResponse::error(StatusCode(400), &e.to_string()),
+                            }
+                        } else {
+                            HttpResponse::error(StatusCode(400), "Invalid JSON payload for /tx/:id/cypher")
+                        }
+                    } else {
+                        HttpResponse::error(StatusCode(400), "Invalid Transaction ID in URL")
+                    }
+                } else {
+                    HttpResponse::error(StatusCode(404), "Route not found")
+                }
+            }
+            (&Method::Post, p) if p.starts_with("/tx/") && p.ends_with("/commit") => {
+                let parts: Vec<&str> = p.split('/').collect();
+                if parts.len() == 4 {
+                    if let Ok(tx_id) = parts[2].parse::<u64>() {
+                        match self.db.commit_transaction(tx_id) {
+                            Ok(_) => HttpResponse::json(&serde_json::json!({
+                                "success": true,
+                                "tx_id": tx_id,
+                                "message": format!("Transaction {} committed successfully", tx_id),
+                            })),
+                            Err(e) => HttpResponse::error(StatusCode(400), &e.to_string()),
+                        }
+                    } else {
+                        HttpResponse::error(StatusCode(400), "Invalid Transaction ID in URL")
+                    }
+                } else {
+                    HttpResponse::error(StatusCode(404), "Route not found")
+                }
+            }
+            (&Method::Post, p) if p.starts_with("/tx/") && p.ends_with("/rollback") => {
+                let parts: Vec<&str> = p.split('/').collect();
+                if parts.len() == 4 {
+                    if let Ok(tx_id) = parts[2].parse::<u64>() {
+                        match self.db.rollback_transaction(tx_id) {
+                            Ok(_) => HttpResponse::json(&serde_json::json!({
+                                "success": true,
+                                "tx_id": tx_id,
+                                "message": format!("Transaction {} rolled back successfully", tx_id),
+                            })),
+                            Err(e) => HttpResponse::error(StatusCode(400), &e.to_string()),
+                        }
+                    } else {
+                        HttpResponse::error(StatusCode(400), "Invalid Transaction ID in URL")
+                    }
+                } else {
+                    HttpResponse::error(StatusCode(404), "Route not found")
+                }
+            }
+            (&Method::Get, "/tx/list") => {
+                let active = self.db.tx_manager().list_active();
+                let json_list: Vec<serde_json::Value> = active
+                    .into_iter()
+                    .map(|(id, rem, ops)| {
+                        serde_json::json!({
+                            "tx_id": id,
+                            "remaining_ms": rem,
+                            "staged_mutations": ops,
+                        })
+                    })
+                    .collect();
+                HttpResponse::json(&serde_json::json!({
+                    "success": true,
+                    "active_transactions": json_list,
+                }))
             }
 
             // Nodes CRUD

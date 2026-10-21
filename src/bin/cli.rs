@@ -33,7 +33,7 @@ fn main() {
     }
 
     if let Some(query) = exec_query {
-        execute_cypher_and_print(&server_url, &query);
+        execute_cypher_and_print(&server_url, &query, None);
         return;
     }
 
@@ -47,10 +47,15 @@ fn main() {
 
     let stdin = io::stdin();
     let mut input_buffer = String::new();
+    let mut active_tx: Option<u64> = None;
 
     loop {
         if input_buffer.is_empty() {
-            print!("rustygraph> ");
+            if let Some(tx_id) = active_tx {
+                print!("rustygraph (tx:{})> ", tx_id);
+            } else {
+                print!("rustygraph> ");
+            }
         } else {
             print!("       ...> ");
         }
@@ -72,6 +77,65 @@ fn main() {
                 }
                 ":help" | ":h" => {
                     print_repl_commands();
+                }
+                s if s.starts_with(":begin") => {
+                    let parts: Vec<&str> = s.split_whitespace().collect();
+                    let timeout_payload = if parts.len() > 1 {
+                        if let Ok(ms) = parts[1].parse::<u64>() {
+                            serde_json::json!({ "timeout_ms": ms }).to_string()
+                        } else {
+                            "{}".to_string()
+                        }
+                    } else {
+                        "{}".to_string()
+                    };
+                    match http_post(&server_url, "/tx/begin", &timeout_payload) {
+                        Ok((200, resp)) => {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&resp) {
+                                if let Some(id) = v.get("tx_id").and_then(|x| x.as_u64()) {
+                                    active_tx = Some(id);
+                                    println!("⚡ Transaction {} started (snapshot isolation active).", id);
+                                }
+                            }
+                        }
+                        Ok((st, resp)) => eprintln!("❌ Failed to begin transaction (HTTP {}): {}", st, resp),
+                        Err(e) => eprintln!("❌ Network error: {}", e),
+                    }
+                }
+                ":commit" => {
+                    if let Some(id) = active_tx {
+                        match http_post(&server_url, &format!("/tx/{}/commit", id), "{}") {
+                            Ok((200, _)) => {
+                                println!("✅ Transaction {} committed successfully to WAL and live database.", id);
+                                active_tx = None;
+                            }
+                            Ok((st, resp)) => eprintln!("❌ Failed to commit transaction (HTTP {}): {}", st, resp),
+                            Err(e) => eprintln!("❌ Network error: {}", e),
+                        }
+                    } else {
+                        println!("No active transaction to commit. Use :begin to start one.");
+                    }
+                }
+                ":rollback" => {
+                    if let Some(id) = active_tx {
+                        match http_post(&server_url, &format!("/tx/{}/rollback", id), "{}") {
+                            Ok((200, _)) => {
+                                println!("⏪ Transaction {} rolled back (staged changes discarded).", id);
+                                active_tx = None;
+                            }
+                            Ok((st, resp)) => eprintln!("❌ Failed to rollback transaction (HTTP {}): {}", st, resp),
+                            Err(e) => eprintln!("❌ Network error: {}", e),
+                        }
+                    } else {
+                        println!("No active transaction to rollback.");
+                    }
+                }
+                ":tx" => {
+                    if let Some(id) = active_tx {
+                        println!("Current session active transaction: {}", id);
+                    } else {
+                        fetch_and_print_get(&server_url, "/tx/list", "Active Server Transactions");
+                    }
                 }
                 ":stats" => {
                     fetch_and_print_get(&server_url, "/stats", "Database Statistics");
@@ -105,7 +169,7 @@ fn main() {
             input_buffer.clear();
 
             if !query.is_empty() {
-                execute_cypher_and_print(&server_url, &query);
+                execute_cypher_and_print(&server_url, &query, active_tx);
             }
         }
     }
@@ -129,6 +193,10 @@ OPTIONS:
 fn print_repl_commands() {
     println!(
         r#"REPL Commands:
+  :begin [ms]   Start a multi-statement ACID transaction (default timeout 30s)
+  :commit       Commit active transaction to WAL and live database
+  :rollback     Rollback active transaction, discarding staged changes
+  :tx           Show active transaction ID or server transaction pool
   :stats        View node counts, edge counts, and WAL sequence metrics
   :cluster      View cluster topology, leader, and active peer nodes
   :checkpoint   Force an immediate WAL flush and on-disk snapshot checkpoint
@@ -139,11 +207,16 @@ fn print_repl_commands() {
     );
 }
 
-fn execute_cypher_and_print(server_url: &str, query: &str) {
+fn execute_cypher_and_print(server_url: &str, query: &str, tx_id: Option<u64>) {
     let start = Instant::now();
     let body = serde_json::json!({ "query": query }).to_string();
+    let endpoint = if let Some(id) = tx_id {
+        format!("/tx/{}/cypher", id)
+    } else {
+        "/cypher".to_string()
+    };
 
-    match http_post(server_url, "/cypher", &body) {
+    match http_post(server_url, &endpoint, &body) {
         Ok((status, response)) => {
             let duration = start.elapsed();
             if status == 200 {

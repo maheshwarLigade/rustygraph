@@ -1,17 +1,36 @@
 use crate::error::{GraphError, Result};
 use crate::graph::Graph;
+use crate::id::NodeId;
 use crate::model::Direction;
 use crate::value::PropertyValue;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 /// Tabular result returned by executing a Cypher query string.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CypherResult {
+    #[serde(default = "default_true")]
+    pub success: bool,
     pub columns: Vec<String>,
     pub rows: Vec<Vec<PropertyValue>>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl CypherResult {
+    pub fn new(columns: Vec<String>, rows: Vec<Vec<PropertyValue>>) -> Self {
+        Self {
+            success: true,
+            columns,
+            rows,
+            error: None,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.rows.len()
     }
@@ -27,7 +46,6 @@ impl fmt::Display for CypherResult {
             return write!(f, "(Empty result)");
         }
 
-        // Compute column widths
         let mut widths: Vec<usize> = self.columns.iter().map(|c| c.len()).collect();
         for row in &self.rows {
             for (i, val) in row.iter().enumerate() {
@@ -73,6 +91,10 @@ impl fmt::Display for CypherResult {
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
     Match,
+    Create,
+    Set,
+    Delete,
+    Detach,
     Where,
     Return,
     Order,
@@ -83,6 +105,11 @@ enum Token {
     Or,
     Asc,
     Desc,
+    Count,
+    Sum,
+    Avg,
+    Min,
+    Max,
     LParen,
     RParen,
     LBracket,
@@ -92,15 +119,16 @@ enum Token {
     Colon,
     Comma,
     Dot,
+    Star,
     Eq,
     Neq,
     Lt,
     Lte,
     Gt,
     Gte,
-    ArrowRight, // ->
-    ArrowLeft,  // <-
-    Dash,       // -
+    ArrowRight,
+    ArrowLeft,
+    Dash,
     Ident(String),
     StringLit(String),
     IntLit(i64),
@@ -161,6 +189,10 @@ impl<'a> Lexer<'a> {
                 '.' => {
                     self.chars.next();
                     tokens.push(Token::Dot);
+                }
+                '*' => {
+                    self.chars.next();
+                    tokens.push(Token::Star);
                 }
                 '=' => {
                     self.chars.next();
@@ -258,6 +290,10 @@ impl<'a> Lexer<'a> {
                     }
                     match ident.to_uppercase().as_str() {
                         "MATCH" => tokens.push(Token::Match),
+                        "CREATE" => tokens.push(Token::Create),
+                        "SET" => tokens.push(Token::Set),
+                        "DELETE" => tokens.push(Token::Delete),
+                        "DETACH" => tokens.push(Token::Detach),
                         "WHERE" => tokens.push(Token::Where),
                         "RETURN" => tokens.push(Token::Return),
                         "ORDER" => tokens.push(Token::Order),
@@ -268,6 +304,11 @@ impl<'a> Lexer<'a> {
                         "OR" => tokens.push(Token::Or),
                         "ASC" => tokens.push(Token::Asc),
                         "DESC" => tokens.push(Token::Desc),
+                        "COUNT" => tokens.push(Token::Count),
+                        "SUM" => tokens.push(Token::Sum),
+                        "AVG" => tokens.push(Token::Avg),
+                        "MIN" => tokens.push(Token::Min),
+                        "MAX" => tokens.push(Token::Max),
                         _ => tokens.push(Token::Ident(ident)),
                     }
                 }
@@ -299,6 +340,7 @@ struct ParsedRel {
     alias: Option<String>,
     rel_type: Option<String>,
     direction: Direction,
+    props: Vec<(String, PropertyValue)>,
 }
 
 #[derive(Debug, Clone)]
@@ -320,17 +362,52 @@ struct WhereClause {
 }
 
 #[derive(Debug, Clone)]
+enum ReturnKind {
+    Property(String, String), // alias.prop
+    Node(String),             // alias
+    CountStar,                // count(*)
+    Count(String, Option<String>), // count(p) or count(p.age)
+    Sum(String, String),      // sum(p.age)
+    Avg(String, String),      // avg(p.age)
+    Min(String, String),      // min(p.age)
+    Max(String, String),      // max(p.age)
+}
+
+#[derive(Debug, Clone)]
 struct ReturnItem {
+    kind: ReturnKind,
+    output_name: String,
+}
+
+#[derive(Debug, Clone)]
+struct SetClause {
+    alias: String,
+    prop: String,
+    val: PropertyValue,
+}
+
+#[derive(Debug, Clone)]
+struct DeleteClause {
+    alias: String,
+    detach: bool,
+}
+
+#[derive(Debug, Clone)]
+struct OrderByClause {
     alias: String,
     prop: Option<String>,
+    descending: bool,
 }
 
 #[derive(Debug, Clone)]
 struct AstQuery {
-    nodes: Vec<ParsedNode>,
-    rels: Vec<ParsedRel>,
+    matches: Vec<(Vec<ParsedNode>, Vec<ParsedRel>)>,
+    creates: Vec<(Vec<ParsedNode>, Vec<ParsedRel>)>,
     where_clauses: Vec<WhereClause>,
+    set_clauses: Vec<SetClause>,
+    delete_clauses: Vec<DeleteClause>,
     returns: Vec<ReturnItem>,
+    order_by: Vec<OrderByClause>,
     limit: Option<usize>,
 }
 
@@ -423,7 +500,6 @@ impl Parser {
     }
 
     fn parse_rel(&mut self) -> Result<ParsedRel> {
-        // e.g. -[:KNOWS]-> or -[r:KNOWS]-> or <-[:KNOWS]-
         let is_incoming = if self.peek() == Some(&Token::ArrowLeft) {
             self.next();
             true
@@ -446,9 +522,38 @@ impl Parser {
                 rel_type = Some(t);
             }
         }
+
+        let mut props = Vec::new();
+        if self.peek() == Some(&Token::LBrace) {
+            self.next();
+            while self.peek() != Some(&Token::RBrace) {
+                let key = if let Some(Token::Ident(k)) = self.next() {
+                    k
+                } else {
+                    return Err(GraphError::InvalidOperation("Expected property key in relationship".into()));
+                };
+                self.expect(Token::Colon)?;
+                let val = match self.next() {
+                    Some(Token::StringLit(s)) => PropertyValue::String(s),
+                    Some(Token::IntLit(i)) => PropertyValue::Int(i),
+                    Some(Token::FloatLit(f)) => PropertyValue::Float(f),
+                    other => {
+                        return Err(GraphError::InvalidOperation(format!("Expected literal value in relationship props, found {:?}", other)));
+                    }
+                };
+                props.push((key, val));
+                if self.peek() == Some(&Token::Comma) {
+                    self.next();
+                } else {
+                    break;
+                }
+            }
+            self.expect(Token::RBrace)?;
+        }
+
         self.expect(Token::RBracket)?;
 
-        let dir = if is_incoming {
+        let direction = if is_incoming {
             self.expect(Token::Dash)?;
             Direction::Incoming
         } else if self.peek() == Some(&Token::ArrowRight) {
@@ -462,13 +567,12 @@ impl Parser {
         Ok(ParsedRel {
             alias,
             rel_type,
-            direction: dir,
+            direction,
+            props,
         })
     }
 
-    fn parse_query(&mut self) -> Result<AstQuery> {
-        self.expect(Token::Match)?;
-
+    fn parse_pattern(&mut self) -> Result<(Vec<ParsedNode>, Vec<ParsedRel>)> {
         let mut nodes = Vec::new();
         let mut rels = Vec::new();
 
@@ -479,111 +583,409 @@ impl Parser {
             nodes.push(self.parse_node()?);
         }
 
+        Ok((nodes, rels))
+    }
+
+    fn parse_query(&mut self) -> Result<AstQuery> {
+        let mut matches = Vec::new();
+        let mut creates = Vec::new();
         let mut where_clauses = Vec::new();
-        if self.peek() == Some(&Token::Where) {
-            self.next();
-            loop {
-                let alias = match self.next() {
-                    Some(Token::Ident(id)) => id,
-                    other => return Err(GraphError::InvalidOperation(format!("Expected alias, found {other:?}"))),
-                };
-                self.expect(Token::Dot)?;
-                let prop = match self.next() {
-                    Some(Token::Ident(p)) => p,
-                    other => return Err(GraphError::InvalidOperation(format!("Expected property, found {other:?}"))),
-                };
-
-                let op = match self.next() {
-                    Some(Token::Eq) => CompOp::Eq,
-                    Some(Token::Neq) => CompOp::Neq,
-                    Some(Token::Lt) => CompOp::Lt,
-                    Some(Token::Lte) => CompOp::Lte,
-                    Some(Token::Gt) => CompOp::Gt,
-                    Some(Token::Gte) => CompOp::Gte,
-                    other => return Err(GraphError::InvalidOperation(format!("Expected comparison operator, found {other:?}"))),
-                };
-
-                let val = match self.next() {
-                    Some(Token::StringLit(s)) => PropertyValue::String(s),
-                    Some(Token::IntLit(i)) => PropertyValue::Int(i),
-                    Some(Token::FloatLit(f)) => PropertyValue::Float(f),
-                    other => return Err(GraphError::InvalidOperation(format!("Expected value, found {other:?}"))),
-                };
-
-                where_clauses.push(WhereClause { alias, prop, op, val });
-
-                if self.peek() == Some(&Token::And) {
-                    self.next();
-                } else {
-                    break;
-                }
-            }
-        }
-
-        self.expect(Token::Return)?;
+        let mut set_clauses = Vec::new();
+        let mut delete_clauses = Vec::new();
         let mut returns = Vec::new();
-        loop {
-            let alias = match self.next() {
-                Some(Token::Ident(id)) => id,
-                other => return Err(GraphError::InvalidOperation(format!("Expected return alias, found {other:?}"))),
-            };
+        let mut order_by = Vec::new();
+        let mut limit = None;
 
-            let prop = if self.peek() == Some(&Token::Dot) {
-                self.next();
-                match self.next() {
-                    Some(Token::Ident(p)) => Some(p),
-                    other => return Err(GraphError::InvalidOperation(format!("Expected property name, found {other:?}"))),
+        while let Some(tok) = self.peek() {
+            match tok {
+                Token::Match => {
+                    self.next();
+                    matches.push(self.parse_pattern()?);
                 }
-            } else {
-                None
-            };
+                Token::Create => {
+                    self.next();
+                    creates.push(self.parse_pattern()?);
+                }
+                Token::Where => {
+                    self.next();
+                    loop {
+                        let alias = if let Some(Token::Ident(a)) = self.next() {
+                            a
+                        } else {
+                            return Err(GraphError::InvalidOperation("Expected alias in WHERE".into()));
+                        };
 
-            returns.push(ReturnItem { alias, prop });
+                        self.expect(Token::Dot)?;
+                        let prop = if let Some(Token::Ident(p)) = self.next() {
+                            p
+                        } else {
+                            return Err(GraphError::InvalidOperation("Expected property in WHERE".into()));
+                        };
 
-            if self.peek() == Some(&Token::Comma) {
-                self.next();
-            } else {
-                break;
+                        let op = match self.next() {
+                            Some(Token::Eq) => CompOp::Eq,
+                            Some(Token::Neq) => CompOp::Neq,
+                            Some(Token::Lt) => CompOp::Lt,
+                            Some(Token::Lte) => CompOp::Lte,
+                            Some(Token::Gt) => CompOp::Gt,
+                            Some(Token::Gte) => CompOp::Gte,
+                            other => {
+                                return Err(GraphError::InvalidOperation(format!(
+                                    "Expected comparison operator in WHERE, found {other:?}"
+                                )));
+                            }
+                        };
+
+                        let val = match self.next() {
+                            Some(Token::StringLit(s)) => PropertyValue::String(s),
+                            Some(Token::IntLit(i)) => PropertyValue::Int(i),
+                            Some(Token::FloatLit(f)) => PropertyValue::Float(f),
+                            other => {
+                                return Err(GraphError::InvalidOperation(format!(
+                                    "Expected literal value in WHERE, found {other:?}"
+                                )));
+                            }
+                        };
+
+                        where_clauses.push(WhereClause { alias, prop, op, val });
+
+                        if self.peek() == Some(&Token::And) {
+                            self.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Token::Set => {
+                    self.next();
+                    loop {
+                        let alias = if let Some(Token::Ident(a)) = self.next() {
+                            a
+                        } else {
+                            return Err(GraphError::InvalidOperation("Expected alias in SET clause".into()));
+                        };
+                        self.expect(Token::Dot)?;
+                        let prop = if let Some(Token::Ident(p)) = self.next() {
+                            p
+                        } else {
+                            return Err(GraphError::InvalidOperation("Expected property in SET clause".into()));
+                        };
+                        self.expect(Token::Eq)?;
+                        let val = match self.next() {
+                            Some(Token::StringLit(s)) => PropertyValue::String(s),
+                            Some(Token::IntLit(i)) => PropertyValue::Int(i),
+                            Some(Token::FloatLit(f)) => PropertyValue::Float(f),
+                            other => {
+                                return Err(GraphError::InvalidOperation(format!(
+                                    "Expected literal value in SET, found {other:?}"
+                                )));
+                            }
+                        };
+                        set_clauses.push(SetClause { alias, prop, val });
+                        if self.peek() == Some(&Token::Comma) {
+                            self.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Token::Delete => {
+                    self.next();
+                    loop {
+                        if let Some(Token::Ident(alias)) = self.next() {
+                            delete_clauses.push(DeleteClause { alias, detach: false });
+                        }
+                        if self.peek() == Some(&Token::Comma) {
+                            self.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Token::Detach => {
+                    self.next();
+                    self.expect(Token::Delete)?;
+                    loop {
+                        if let Some(Token::Ident(alias)) = self.next() {
+                            delete_clauses.push(DeleteClause { alias, detach: true });
+                        }
+                        if self.peek() == Some(&Token::Comma) {
+                            self.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Token::Return => {
+                    self.next();
+                    loop {
+                        let return_item = self.parse_return_item()?;
+                        returns.push(return_item);
+                        if self.peek() == Some(&Token::Comma) {
+                            self.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Token::Order => {
+                    self.next();
+                    self.expect(Token::By)?;
+                    loop {
+                        let alias = if let Some(Token::Ident(a)) = self.next() {
+                            a
+                        } else {
+                            return Err(GraphError::InvalidOperation("Expected identifier in ORDER BY".into()));
+                        };
+                        let mut prop = None;
+                        if self.peek() == Some(&Token::Dot) {
+                            self.next();
+                            if let Some(Token::Ident(p)) = self.next() {
+                                prop = Some(p);
+                            }
+                        }
+                        let mut descending = false;
+                        if self.peek() == Some(&Token::Desc) {
+                            self.next();
+                            descending = true;
+                        } else if self.peek() == Some(&Token::Asc) {
+                            self.next();
+                        }
+                        order_by.push(OrderByClause { alias, prop, descending });
+                        if self.peek() == Some(&Token::Comma) {
+                            self.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Token::Limit => {
+                    self.next();
+                    if let Some(Token::IntLit(n)) = self.next() {
+                        limit = Some(n as usize);
+                    } else {
+                        return Err(GraphError::InvalidOperation("Expected integer in LIMIT".into()));
+                    }
+                }
+                other => {
+                    return Err(GraphError::InvalidOperation(format!(
+                        "Unexpected token '{:?}' in Cypher query",
+                        other
+                    )));
+                }
             }
         }
 
-        let mut limit = None;
-        if self.peek() == Some(&Token::Limit) {
-            self.next();
-            if let Some(Token::IntLit(lim)) = self.next() {
-                limit = Some(lim as usize);
-            }
+        if matches.is_empty() && creates.is_empty() && returns.is_empty() {
+            return Err(GraphError::InvalidOperation(
+                "Cypher query must contain at least a MATCH, CREATE, or RETURN clause".into(),
+            ));
         }
 
         Ok(AstQuery {
-            nodes,
-            rels,
+            matches,
+            creates,
             where_clauses,
+            set_clauses,
+            delete_clauses,
             returns,
+            order_by,
             limit,
+        })
+    }
+
+    fn parse_return_item(&mut self) -> Result<ReturnItem> {
+        match self.peek() {
+            Some(Token::Count) => {
+                self.next();
+                self.expect(Token::LParen)?;
+                if self.peek() == Some(&Token::Star) {
+                    self.next();
+                    self.expect(Token::RParen)?;
+                    Ok(ReturnItem {
+                        kind: ReturnKind::CountStar,
+                        output_name: "count(*)".to_string(),
+                    })
+                } else if let Some(Token::Ident(alias)) = self.next() {
+                    let mut prop = None;
+                    if self.peek() == Some(&Token::Dot) {
+                        self.next();
+                        if let Some(Token::Ident(p)) = self.next() {
+                            prop = Some(p);
+                        }
+                    }
+                    self.expect(Token::RParen)?;
+                    let name = match &prop {
+                        Some(p) => format!("count({}.{})", alias, p),
+                        None => format!("count({})", alias),
+                    };
+                    Ok(ReturnItem {
+                        kind: ReturnKind::Count(alias, prop),
+                        output_name: name,
+                    })
+                } else {
+                    Err(GraphError::InvalidOperation("Expected expression in count(...)".into()))
+                }
+            }
+            Some(Token::Sum) => self.parse_agg_func(|a, p| ReturnKind::Sum(a, p), "sum"),
+            Some(Token::Avg) => self.parse_agg_func(|a, p| ReturnKind::Avg(a, p), "avg"),
+            Some(Token::Min) => self.parse_agg_func(|a, p| ReturnKind::Min(a, p), "min"),
+            Some(Token::Max) => self.parse_agg_func(|a, p| ReturnKind::Max(a, p), "max"),
+            Some(Token::Ident(name)) => {
+                let alias = name.clone();
+                self.next();
+                if self.peek() == Some(&Token::Dot) {
+                    self.next();
+                    if let Some(Token::Ident(prop)) = self.next() {
+                        let name = format!("{}.{}", alias, prop);
+                        Ok(ReturnItem {
+                            kind: ReturnKind::Property(alias, prop),
+                            output_name: name,
+                        })
+                    } else {
+                        Err(GraphError::InvalidOperation("Expected property after dot".into()))
+                    }
+                } else {
+                    Ok(ReturnItem {
+                        kind: ReturnKind::Node(alias.clone()),
+                        output_name: alias,
+                    })
+                }
+            }
+            other => Err(GraphError::InvalidOperation(format!(
+                "Unexpected return item: {:?}",
+                other
+            ))),
+        }
+    }
+
+    fn parse_agg_func<F>(&mut self, constructor: F, func_name: &str) -> Result<ReturnItem>
+    where
+        F: FnOnce(String, String) -> ReturnKind,
+    {
+        self.next();
+        self.expect(Token::LParen)?;
+        let alias = if let Some(Token::Ident(a)) = self.next() {
+            a
+        } else {
+            return Err(GraphError::InvalidOperation(format!("Expected identifier in {}()", func_name)));
+        };
+        self.expect(Token::Dot)?;
+        let prop = if let Some(Token::Ident(p)) = self.next() {
+            p
+        } else {
+            return Err(GraphError::InvalidOperation(format!("Expected property in {}()", func_name)));
+        };
+        self.expect(Token::RParen)?;
+        let name = format!("{}({}.{})", func_name, alias, prop);
+        Ok(ReturnItem {
+            kind: constructor(alias, prop),
+            output_name: name,
         })
     }
 }
 
 // =========================================================================
-// Cypher Execution
+// Graph Cypher Execution Engine
 // =========================================================================
 
 impl Graph {
-    /// Execute a Cypher query string against this in-memory graph.
-    ///
-    /// Supported syntax subset:
-    /// `MATCH (a:Label {prop: val})-[r:TYPE]->(b:Label) WHERE b.age > 25 RETURN a.name, b.name LIMIT 10`
-    pub fn cypher(&self, query_str: &str) -> Result<CypherResult> {
+    /// Execute an openCypher query string against the graph.
+    /// Supports `MATCH`, `CREATE`, `SET`, `DELETE`, `DETACH DELETE`, `WHERE`,
+    /// aggregations (`count`, `sum`, `avg`, `min`, `max`), and `ORDER BY`.
+    pub fn cypher(&mut self, query_str: &str) -> Result<CypherResult> {
         let mut lexer = Lexer::new(query_str);
         let tokens = lexer.tokenize()?;
         let mut parser = Parser::new(tokens);
         let ast = parser.parse_query()?;
 
+        // Keep track of aliases created or matched to node IDs
+        let mut alias_node_map: HashMap<String, NodeId> = HashMap::new();
+
+        // 1. Handle standalone or pre-match CREATE patterns
+        for (nodes, rels) in &ast.creates {
+            let mut pattern_node_ids = Vec::new();
+            for n in nodes {
+                let node_id = self.create_node_with(|node| {
+                    if let Some(lbl) = &n.label {
+                        node.add_label(lbl);
+                    }
+                    for (k, v) in &n.props {
+                        node.set_prop(k, v.clone());
+                    }
+                })?;
+                if !n.alias.is_empty() {
+                    alias_node_map.insert(n.alias.clone(), node_id);
+                }
+                pattern_node_ids.push(node_id);
+            }
+
+            for (i, rel) in rels.iter().enumerate() {
+                let src = pattern_node_ids[i];
+                let dst = pattern_node_ids[i + 1];
+                let rel_type = rel.rel_type.as_deref().unwrap_or("RELATED");
+                self.create_edge_with(src, dst, rel_type, |edge| {
+                    for (k, v) in &rel.props {
+                        edge.set_prop(k, v.clone());
+                    }
+                })?;
+            }
+        }
+
+        // If purely a CREATE query with no MATCH and no RETURN
+        if ast.matches.is_empty() && ast.returns.is_empty() {
+            let columns = vec!["result".to_string()];
+            let rows = vec![vec![PropertyValue::String(format!(
+                "Created {} nodes",
+                alias_node_map.len()
+            ))]];
+            return Ok(CypherResult::new(columns, rows));
+        }
+
+        // If CREATE with RETURN
+        if ast.matches.is_empty() && !ast.returns.is_empty() {
+            let columns: Vec<String> = ast.returns.iter().map(|r| r.output_name.clone()).collect();
+            let mut row = Vec::new();
+            for item in &ast.returns {
+                match &item.kind {
+                    ReturnKind::Property(alias, prop) => {
+                        let val = alias_node_map
+                            .get(alias)
+                            .and_then(|id| self.get_node_property(*id, prop))
+                            .cloned()
+                            .unwrap_or(PropertyValue::Null);
+                        row.push(val);
+                    }
+                    ReturnKind::Node(alias) => {
+                        if let Some(id) = alias_node_map.get(alias) {
+                            if let Some(node) = self.get_node(*id) {
+                                let mut map = BTreeMap::new();
+                                map.insert("id".to_string(), PropertyValue::Int(node.id.raw() as i64));
+                                for (k, v) in node.properties.iter() {
+                                    map.insert(k.clone(), v.clone());
+                                }
+                                row.push(PropertyValue::Map(map));
+                            } else {
+                                row.push(PropertyValue::Null);
+                            }
+                        } else {
+                            row.push(PropertyValue::Null);
+                        }
+                    }
+                    ReturnKind::CountStar | ReturnKind::Count(_, _) => {
+                        row.push(PropertyValue::Int(alias_node_map.len() as i64));
+                    }
+                    _ => row.push(PropertyValue::Null),
+                }
+            }
+            return Ok(CypherResult::new(columns, vec![row]));
+        }
+
+        // 2. Process MATCH queries
+        let (pattern_nodes, pattern_rels) = &ast.matches[0];
         let mut builder = self.query();
 
-        // 1. Build pattern
-        if let Some(first_node) = ast.nodes.first() {
+        if let Some(first_node) = pattern_nodes.first() {
             builder = builder.match_node(&first_node.alias);
             if let Some(lbl) = &first_node.label {
                 builder = builder.with_label(lbl);
@@ -593,8 +995,8 @@ impl Graph {
             }
         }
 
-        for (i, rel) in ast.rels.iter().enumerate() {
-            let target_node = &ast.nodes[i + 1];
+        for (i, rel) in pattern_rels.iter().enumerate() {
+            let target_node = &pattern_nodes[i + 1];
             builder = builder.rel(
                 rel.alias.clone(),
                 rel.rel_type.clone(),
@@ -609,7 +1011,7 @@ impl Graph {
             }
         }
 
-        // 2. WHERE clauses
+        // Apply WHERE clauses
         for w in ast.where_clauses {
             let alias = w.alias.clone();
             let prop = w.prop.clone();
@@ -632,44 +1034,278 @@ impl Graph {
             });
         }
 
-        // 3. Limit
-        if let Some(lim) = ast.limit {
-            builder = builder.limit(lim);
+        // Execute matching to capture context bindings
+        struct MatchBinding {
+            nodes: HashMap<String, NodeId>,
+            edges: HashMap<String, crate::id::RelId>,
         }
 
-        // 4. Projection
-        let return_items = ast.returns.clone();
-        let columns: Vec<String> = return_items
-            .iter()
-            .map(|item| {
-                if let Some(p) = &item.prop {
-                    format!("{}.{}", item.alias, p)
-                } else {
-                    item.alias.clone()
-                }
+        let bindings: Vec<MatchBinding> = builder
+            .execute()
+            .into_iter()
+            .map(|ctx| MatchBinding {
+                nodes: ctx.node_bindings().clone(),
+                edges: ctx.edge_bindings().clone(),
             })
             .collect();
 
-        let rows: Vec<Vec<PropertyValue>> = builder.project(move |ctx| {
-            let mut row = Vec::with_capacity(return_items.len());
-            for item in &return_items {
-                if let Some(p) = &item.prop {
-                    let val = ctx.prop(&item.alias, p).cloned().unwrap_or(PropertyValue::Null);
-                    row.push(val);
-                } else if let Some(n) = ctx.node(&item.alias) {
-                    let mut map = std::collections::BTreeMap::new();
+        // 3. Process SET clauses on matched entities
+        if !ast.set_clauses.is_empty() {
+            for b in &bindings {
+                for s in &ast.set_clauses {
+                    if let Some(&node_id) = b.nodes.get(&s.alias) {
+                        let _ = self.set_node_property(node_id, &s.prop, s.val.clone());
+                    }
+                }
+            }
+        }
+
+        // 4. Process DELETE & DETACH DELETE clauses
+        if !ast.delete_clauses.is_empty() {
+            let mut nodes_to_delete = Vec::new();
+            for b in &bindings {
+                for d in &ast.delete_clauses {
+                    if let Some(&node_id) = b.nodes.get(&d.alias) {
+                        nodes_to_delete.push((node_id, d.detach));
+                    }
+                }
+            }
+
+            for (node_id, detach) in nodes_to_delete {
+                if detach {
+                    let _ = self.delete_node(node_id);
+                } else {
+                    let deg = self.degree(node_id, Direction::Both)?;
+                    if deg > 0 {
+                        return Err(GraphError::InvalidOperation(format!(
+                            "Cannot delete node {} because it still has {} relationships; use DETACH DELETE",
+                            node_id.0, deg
+                        )));
+                    }
+                    self.delete_node(node_id)?;
+                }
+            }
+        }
+
+        // If query was purely a mutation (SET/DELETE) without RETURN
+        if ast.returns.is_empty() {
+            let columns = vec!["result".to_string()];
+            let rows = vec![vec![PropertyValue::String(format!(
+                "Updated {} matched entities",
+                bindings.len()
+            ))]];
+            return Ok(CypherResult::new(columns, rows));
+        }
+
+        // Helper closures for reading properties / nodes post-mutation
+        let get_prop = |b: &MatchBinding, alias: &str, prop: &str| -> Option<PropertyValue> {
+            if let Some(&nid) = b.nodes.get(alias) {
+                self.get_node(nid).and_then(|n| n.prop(prop)).cloned()
+            } else if let Some(&eid) = b.edges.get(alias) {
+                self.get_edge(eid).and_then(|e| e.prop(prop)).cloned()
+            } else {
+                None
+            }
+        };
+
+        let get_node_val = |b: &MatchBinding, alias: &str| -> PropertyValue {
+            if let Some(&nid) = b.nodes.get(alias) {
+                if let Some(n) = self.get_node(nid) {
+                    let mut map = BTreeMap::new();
                     map.insert("id".to_string(), PropertyValue::Int(n.id.raw() as i64));
                     for (k, v) in n.properties.iter() {
                         map.insert(k.clone(), v.clone());
                     }
-                    row.push(PropertyValue::Map(map));
+                    PropertyValue::Map(map)
                 } else {
-                    row.push(PropertyValue::Null);
+                    PropertyValue::Null
                 }
+            } else {
+                PropertyValue::Null
             }
-            row
+        };
+
+        // 5. Check if query contains aggregation functions
+        let has_aggregations = ast.returns.iter().any(|r| {
+            matches!(
+                r.kind,
+                ReturnKind::CountStar
+                    | ReturnKind::Count(_, _)
+                    | ReturnKind::Sum(_, _)
+                    | ReturnKind::Avg(_, _)
+                    | ReturnKind::Min(_, _)
+                    | ReturnKind::Max(_, _)
+            )
         });
 
-        Ok(CypherResult { columns, rows })
+        let columns: Vec<String> = ast.returns.iter().map(|r| r.output_name.clone()).collect();
+
+        if has_aggregations {
+            let mut row = Vec::new();
+            for item in &ast.returns {
+                match &item.kind {
+                    ReturnKind::CountStar => {
+                        row.push(PropertyValue::Int(bindings.len() as i64));
+                    }
+                    ReturnKind::Count(alias, prop) => {
+                        let mut cnt = 0;
+                        for b in &bindings {
+                            if let Some(p) = prop {
+                                if get_prop(b, alias, p).is_some() {
+                                    cnt += 1;
+                                }
+                            } else if b.nodes.contains_key(alias) {
+                                cnt += 1;
+                            }
+                        }
+                        row.push(PropertyValue::Int(cnt));
+                    }
+                    ReturnKind::Sum(alias, prop) => {
+                        let mut sum = 0.0f64;
+                        for b in &bindings {
+                            if let Some(v) = get_prop(b, alias, prop) {
+                                if let Some(n) = v.as_f64() {
+                                    sum += n;
+                                }
+                            }
+                        }
+                        row.push(PropertyValue::Float(sum));
+                    }
+                    ReturnKind::Avg(alias, prop) => {
+                        let mut sum = 0.0f64;
+                        let mut cnt = 0;
+                        for b in &bindings {
+                            if let Some(v) = get_prop(b, alias, prop) {
+                                if let Some(n) = v.as_f64() {
+                                    sum += n;
+                                    cnt += 1;
+                                }
+                            }
+                        }
+                        let avg = if cnt > 0 { sum / cnt as f64 } else { 0.0 };
+                        row.push(PropertyValue::Float(avg));
+                    }
+                    ReturnKind::Min(alias, prop) => {
+                        let mut min_val: Option<PropertyValue> = None;
+                        for b in &bindings {
+                            if let Some(v) = get_prop(b, alias, prop) {
+                                match &min_val {
+                                    None => min_val = Some(v),
+                                    Some(curr) => {
+                                        if &v < curr {
+                                            min_val = Some(v);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        row.push(min_val.unwrap_or(PropertyValue::Null));
+                    }
+                    ReturnKind::Max(alias, prop) => {
+                        let mut max_val: Option<PropertyValue> = None;
+                        for b in &bindings {
+                            if let Some(v) = get_prop(b, alias, prop) {
+                                match &max_val {
+                                    None => max_val = Some(v),
+                                    Some(curr) => {
+                                        if &v > curr {
+                                            max_val = Some(v);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        row.push(max_val.unwrap_or(PropertyValue::Null));
+                    }
+                    ReturnKind::Property(alias, prop) => {
+                        let val = bindings
+                            .first()
+                            .and_then(|b| get_prop(b, alias, prop))
+                            .unwrap_or(PropertyValue::Null);
+                        row.push(val);
+                    }
+                    ReturnKind::Node(alias) => {
+                        let node_val = bindings
+                            .first()
+                            .map(|b| get_node_val(b, alias))
+                            .unwrap_or(PropertyValue::Null);
+                        row.push(node_val);
+                    }
+                }
+            }
+            return Ok(CypherResult::new(columns, vec![row]));
+        }
+
+        // Standard Projections (non-aggregated)
+        let mut rows: Vec<Vec<PropertyValue>> = Vec::with_capacity(bindings.len());
+
+        for b in &bindings {
+            let mut row = Vec::with_capacity(ast.returns.len());
+            for item in &ast.returns {
+                match &item.kind {
+                    ReturnKind::Property(alias, prop) => {
+                        let val = get_prop(b, alias, prop).unwrap_or(PropertyValue::Null);
+                        row.push(val);
+                    }
+                    ReturnKind::Node(alias) => {
+                        row.push(get_node_val(b, alias));
+                    }
+                    _ => row.push(PropertyValue::Null),
+                }
+            }
+            rows.push(row);
+        }
+
+        // 6. Handle ORDER BY
+        if !ast.order_by.is_empty() {
+            let order_spec = ast.order_by.clone();
+            let return_spec = ast.returns.clone();
+
+            rows.sort_by(|row_a, row_b| {
+                for order in &order_spec {
+                    // Locate column index
+                    let col_idx = return_spec.iter().position(|r| match &r.kind {
+                        ReturnKind::Property(a, p) => {
+                            a == &order.alias && order.prop.as_deref() == Some(p)
+                        }
+                        ReturnKind::Node(a) => a == &order.alias && order.prop.is_none(),
+                        _ => false,
+                    });
+
+                    if let Some(idx) = col_idx {
+                        let val_a = &row_a[idx];
+                        let val_b = &row_b[idx];
+                        let cmp = val_a.cmp(val_b);
+                        if cmp != std::cmp::Ordering::Equal {
+                            return if order.descending {
+                                cmp.reverse()
+                            } else {
+                                cmp
+                            };
+                        }
+                    }
+                }
+                std::cmp::Ordering::Equal
+            });
+        }
+
+        // 7. Handle LIMIT
+        if let Some(lim) = ast.limit {
+            if rows.len() > lim {
+                rows.truncate(lim);
+            }
+        }
+
+        Ok(CypherResult::new(columns, rows))
+    }
+}
+
+/// Returns true if the Cypher query string contains any mutating operations (`CREATE`, `SET`, `DELETE`, `DETACH`).
+pub fn is_cypher_mutation(query_str: &str) -> bool {
+    let mut lexer = Lexer::new(query_str);
+    if let Ok(tokens) = lexer.tokenize() {
+        tokens.iter().any(|t| matches!(t, Token::Create | Token::Set | Token::Delete | Token::Detach))
+    } else {
+        false
     }
 }

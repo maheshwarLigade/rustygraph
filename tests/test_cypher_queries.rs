@@ -81,7 +81,7 @@ fn test_cypher_limit_clause() -> Result<()> {
 
 #[test]
 fn test_cypher_syntax_error_handling() {
-    let graph = Graph::new();
+    let mut graph = Graph::new();
 
     // Missing closing parenthesis
     let err1 = graph.cypher("MATCH (a:Person RETURN a.name");

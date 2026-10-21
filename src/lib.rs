@@ -72,6 +72,7 @@ pub mod server;
 pub mod snapshot;
 pub mod stats;
 pub mod storage;
+pub mod transaction;
 pub mod traversal;
 pub mod value;
 pub mod vector;
@@ -98,6 +99,7 @@ pub mod prelude {
     pub use crate::server::{ServerConfig, StandaloneServer};
     pub use crate::snapshot::{SnapshotManager, SnapshotMetadata};
     pub use crate::stats::GraphStats;
+    pub use crate::transaction::{Transaction, TransactionManager, TransactionStatus};
     pub use crate::traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
     pub use crate::value::PropertyValue;
     pub use crate::vector::{VectorIndex, VectorSearchResult, VectorSimilarity};

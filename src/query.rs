@@ -56,6 +56,16 @@ impl<'a> QueryContext<'a> {
             None
         }
     }
+
+    /// Access all node bindings in the context.
+    pub fn node_bindings(&self) -> &HashMap<String, NodeId> {
+        &self.node_bindings
+    }
+
+    /// Access all edge bindings in the context.
+    pub fn edge_bindings(&self) -> &HashMap<String, RelId> {
+        &self.edge_bindings
+    }
 }
 
 #[derive(Clone)]

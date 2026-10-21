@@ -1,10 +1,11 @@
 use crate::concurrent::ConcurrentGraph;
-use crate::cypher::CypherResult;
-use crate::error::{Error, Result};
+use crate::cypher::{is_cypher_mutation, CypherResult};
+use crate::error::{Error, GraphError, Result};
 use crate::graph::Graph;
 use crate::id::{NodeId, RelId};
 use crate::model::{Node, Relationship};
 use crate::snapshot::SnapshotManager;
+use crate::transaction::TransactionManager;
 use crate::value::PropertyValue;
 use crate::vector::{VectorSearchResult, VectorSimilarity};
 use crate::wal::{FsyncPolicy, WalManager, WalOp};
@@ -13,6 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Database configuration options for standalone deployment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +53,7 @@ pub struct StandaloneDatabase {
     graph: Arc<ConcurrentGraph>,
     wal: Arc<WalManager>,
     snapshots: Arc<SnapshotManager>,
+    tx_manager: Arc<TransactionManager>,
     last_checkpoint_seq: AtomicU64,
     ops_since_checkpoint: AtomicU64,
     start_time: std::time::Instant,
@@ -73,6 +76,7 @@ impl StandaloneDatabase {
 
         let wal = Arc::new(WalManager::open(&wal_dir, fsync_policy)?);
         let snapshots = Arc::new(SnapshotManager::new(&snap_dir, config.keep_snapshots)?);
+        let tx_manager = Arc::new(TransactionManager::new(Duration::from_secs(30)));
 
         // Step 1: Recover from latest snapshot if present
         let (mut graph, snapshot_seq) = match snapshots.load_latest_snapshot()? {
@@ -95,6 +99,7 @@ impl StandaloneDatabase {
             graph: concurrent_graph,
             wal,
             snapshots,
+            tx_manager,
             last_checkpoint_seq: AtomicU64::new(snapshot_seq),
             ops_since_checkpoint: AtomicU64::new(0),
             start_time: std::time::Instant::now(),
@@ -218,12 +223,80 @@ impl StandaloneDatabase {
     }
 
     // =========================================================================
-    // Cypher & Vector Search
+    // Cypher & ACID Transactions
     // =========================================================================
 
-    /// Executes an openCypher query string against the database.
+    /// Executes an openCypher query string against the database with WAL persistence.
     pub fn cypher(&self, query_str: &str) -> Result<CypherResult> {
-        self.graph.with_write(|g| g.cypher(query_str))
+        let res = self.graph.with_write(|g| g.cypher(query_str))?;
+        if is_cypher_mutation(query_str) {
+            self.wal.append(WalOp::CypherQuery {
+                query: query_str.to_string(),
+            })?;
+            self.track_operation();
+        }
+        Ok(res)
+    }
+
+    /// Begins a new multi-statement ACID transaction with snapshot isolation.
+    pub fn begin_transaction(&self, timeout: Option<Duration>) -> Result<u64> {
+        let snapshot = self.graph.with_read(|g| g.clone());
+        let tx_id = self.tx_manager.begin(snapshot, timeout);
+        Ok(tx_id)
+    }
+
+    /// Executes an openCypher query inside an active transaction.
+    pub fn execute_tx(&self, tx_id: u64, query_str: &str) -> Result<CypherResult> {
+        self.tx_manager.execute(tx_id, query_str)
+    }
+
+    /// Commits an active transaction, applying staged mutations to live database and WAL.
+    pub fn commit_transaction(&self, tx_id: u64) -> Result<()> {
+        let tx = self
+            .tx_manager
+            .remove(tx_id)?
+            .ok_or_else(|| GraphError::InvalidOperation(format!("Transaction {} not found or already closed", tx_id)))?;
+
+        if tx.created_at.elapsed() > tx.timeout {
+            return Err(GraphError::InvalidOperation(format!(
+                "Transaction {} timed out before commit",
+                tx_id
+            )));
+        }
+
+        if !tx.mutating_queries.is_empty() {
+            self.graph.with_write(|g| {
+                for q in &tx.mutating_queries {
+                    g.cypher(q)?;
+                }
+                Ok::<(), GraphError>(())
+            })?;
+
+            self.wal.append(WalOp::TransactionCommit {
+                tx_id,
+                queries: tx.mutating_queries,
+            })?;
+            self.track_operation();
+        }
+
+        Ok(())
+    }
+
+    /// Rolls back an active transaction, discarding all staged mutations.
+    pub fn rollback_transaction(&self, tx_id: u64) -> Result<()> {
+        let removed = self.tx_manager.remove(tx_id)?;
+        if removed.is_none() {
+            return Err(GraphError::InvalidOperation(format!(
+                "Transaction {} not found or already closed",
+                tx_id
+            )));
+        }
+        Ok(())
+    }
+
+    /// Returns a reference to the TransactionManager.
+    pub fn tx_manager(&self) -> Arc<TransactionManager> {
+        Arc::clone(&self.tx_manager)
     }
 
     /// Creates an in-memory vector index with durability.
@@ -326,6 +399,14 @@ impl StandaloneDatabase {
             }
             WalOp::CreateVectorIndex { name, label, prop_key, dimension, similarity } => {
                 let _ = graph.create_vector_index(&name, &label, &prop_key, dimension, similarity);
+            }
+            WalOp::CypherQuery { query } => {
+                let _ = graph.cypher(&query);
+            }
+            WalOp::TransactionCommit { queries, .. } => {
+                for q in queries {
+                    let _ = graph.cypher(&q);
+                }
             }
         }
         Ok(())

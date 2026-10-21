@@ -83,6 +83,13 @@ pub enum WalOp {
         dimension: usize,
         similarity: VectorSimilarity,
     },
+    CypherQuery {
+        query: String,
+    },
+    TransactionCommit {
+        tx_id: u64,
+        queries: Vec<String>,
+    },
 }
 
 /// A serialized entry in the Write-Ahead Log.
