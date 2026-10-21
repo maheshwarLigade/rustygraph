@@ -2,6 +2,9 @@
 name = "rusty_graph"
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
+description = "Ultra-fast, in-memory labeled property graph database with Cypher query execution, vector search, and multi-language SDKs"
+repository = "https://github.com/maheshwarLigade/rustygraph"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
