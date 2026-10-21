@@ -16,6 +16,8 @@ struct NodeRecord {
     node: Node,
     outgoing: SmallVec<[RelId; 8]>,
     incoming: SmallVec<[RelId; 8]>,
+    #[serde(default)]
+    expires_at: Option<u64>,
 }
 
 /// The core in-memory property graph engine, providing fast O(1) mutations,
@@ -71,6 +73,7 @@ impl Graph {
             node: Node::new(NodeId(raw_id)),
             outgoing: SmallVec::new(),
             incoming: SmallVec::new(),
+            expires_at: None,
         });
         NodeId(raw_id)
     }
@@ -103,6 +106,7 @@ impl Graph {
                 node,
                 outgoing: SmallVec::new(),
                 incoming: SmallVec::new(),
+                expires_at: None,
             }
         });
         let node_id = NodeId(raw_id);
@@ -172,6 +176,7 @@ impl Graph {
                 node,
                 outgoing: SmallVec::new(),
                 incoming: SmallVec::new(),
+                expires_at: None,
             };
             self.nodes.insert_exact(raw_id, record);
         }
@@ -312,7 +317,13 @@ impl Graph {
         }
 
         let rec = self.nodes.get_mut(id.raw()).unwrap();
-        let old_val = rec.node.set_prop(key_str.clone(), val_prop.clone());
+        let old_val = if key_str.contains('.') {
+            let prev = rec.node.prop_path(&key_str).cloned();
+            rec.node.set_prop_path(&key_str, val_prop.clone());
+            prev
+        } else {
+            rec.node.set_prop(key_str.clone(), val_prop.clone())
+        };
 
         // Update property indices
         for label in &rec.node.labels {
@@ -339,9 +350,9 @@ impl Graph {
         Ok(old_val)
     }
 
-    /// Get a property reference from a node.
+    /// Get a property reference from a node (exact key or nested dot-path).
     pub fn get_node_property(&self, id: NodeId, key: &str) -> Option<&PropertyValue> {
-        self.get_node(id).and_then(|n| n.prop(key))
+        self.get_node(id).and_then(|n| n.prop_path(key))
     }
 
     /// Remove a property from a node, updating indices.
@@ -548,23 +559,32 @@ impl Graph {
         self.relationships.iter().map(|(_, rel)| rel)
     }
 
-    /// Set a property on a relationship.
+    /// Set a property on a relationship (exact key or nested dot-path).
     pub fn set_edge_property<K: Into<String>, V: Into<PropertyValue>>(
         &mut self,
         id: RelId,
         key: K,
         val: V,
     ) -> Result<Option<PropertyValue>> {
+        let key_str = key.into();
+        let val_prop = val.into();
         let rel = self
             .relationships
             .get_mut(id.raw())
             .ok_or_else(|| GraphError::RelationshipNotFound(id.raw()))?;
-        Ok(rel.set_prop(key, val))
+        let old_val = if key_str.contains('.') {
+            let prev = rel.prop_path(&key_str).cloned();
+            rel.set_prop_path(&key_str, val_prop);
+            prev
+        } else {
+            rel.set_prop(key_str, val_prop)
+        };
+        Ok(old_val)
     }
 
-    /// Get a property reference from a relationship.
+    /// Get a property reference from a relationship (exact key or nested dot-path).
     pub fn get_edge_property(&self, id: RelId, key: &str) -> Option<&PropertyValue> {
-        self.get_edge(id).and_then(|r| r.prop(key))
+        self.get_edge(id).and_then(|r| r.prop_path(key))
     }
 
     /// Remove a property from a relationship.
@@ -620,6 +640,86 @@ impl Graph {
             Direction::Incoming => Ok(rec.incoming.len()),
             Direction::Both => Ok(rec.outgoing.len() + rec.incoming.len()),
         }
+    }
+
+    /// Returns true if a node's total degree exceeds the supernode threshold (e.g. 1000).
+    pub fn is_supernode(&self, node: NodeId, threshold: usize) -> Result<bool> {
+        let deg = self.degree(node, Direction::Both)?;
+        Ok(deg >= threshold)
+    }
+
+    /// Retrieve a paginated/chunked window of incident relationships for high-degree supernodes.
+    /// Prevents OOM and massive latency spikes when scanning dense hubs.
+    pub fn incident_edges_paged(
+        &self,
+        node: NodeId,
+        dir: Direction,
+        rel_type: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<&Relationship>> {
+        let edge_ids = self.incident_edge_ids(node, dir)?;
+        let mut result = Vec::with_capacity(limit.min(edge_ids.len()));
+        let mut skipped = 0;
+
+        for id in edge_ids {
+            if let Some(edge) = self.get_edge(id) {
+                if let Some(t) = rel_type {
+                    if !edge.matches_type(t) {
+                        continue;
+                    }
+                }
+                if skipped < offset {
+                    skipped += 1;
+                    continue;
+                }
+                result.push(edge);
+                if result.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    /// Sets an automatic Time-To-Live (TTL) expiration on a node.
+    pub fn set_node_ttl(&mut self, node: NodeId, ttl: std::time::Duration) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let expires_at = now + ttl.as_millis() as u64;
+
+        let rec = self
+            .nodes
+            .get_mut(node.raw())
+            .ok_or_else(|| GraphError::NodeNotFound(node.raw()))?;
+        rec.expires_at = Some(expires_at);
+        Ok(())
+    }
+
+    /// Prunes and cascade-deletes all nodes whose TTL has expired.
+    /// Returns the number of pruned nodes.
+    pub fn prune_expired_nodes(&mut self) -> Result<usize> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let mut expired_ids = Vec::new();
+        for (raw_id, rec) in self.nodes.iter() {
+            if let Some(exp) = rec.expires_at {
+                if exp <= now {
+                    expired_ids.push(NodeId(raw_id));
+                }
+            }
+        }
+
+        let count = expired_ids.len();
+        for id in expired_ids {
+            let _ = self.delete_node(id);
+        }
+        Ok(count)
     }
 
     /// Return relationship IDs adjacent to a node according to direction.

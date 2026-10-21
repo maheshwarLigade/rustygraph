@@ -119,6 +119,58 @@ impl PropertyValue {
             Self::Map(_) => "Map",
         }
     }
+
+    /// Navigate a nested dot-separated path (e.g. "address.city" or "tags.0") inside a Map or List.
+    pub fn get_path(&self, path: &str) -> Option<&PropertyValue> {
+        let mut curr = self;
+        for segment in path.split('.') {
+            if segment.is_empty() {
+                continue;
+            }
+            match curr {
+                Self::Map(m) => {
+                    curr = m.get(segment)?;
+                }
+                Self::List(l) => {
+                    let idx = segment.parse::<usize>().ok()?;
+                    curr = l.get(idx)?;
+                }
+                _ => return None,
+            }
+        }
+        Some(curr)
+    }
+
+    /// Mutate or insert a nested dot-separated path (e.g. "address.city") inside a Map or List.
+    pub fn set_path(&mut self, path: &str, val: PropertyValue) {
+        let parts: Vec<&str> = path.split('.').filter(|s| !s.is_empty()).collect();
+        if parts.is_empty() {
+            *self = val;
+            return;
+        }
+
+        let mut curr = self;
+        for i in 0..(parts.len() - 1) {
+            let seg = parts[i];
+            if !matches!(curr, Self::Map(_)) {
+                *curr = Self::Map(BTreeMap::new());
+            }
+            if let Self::Map(m) = curr {
+                if !m.contains_key(seg) {
+                    m.insert(seg.to_string(), Self::Map(BTreeMap::new()));
+                }
+                curr = m.get_mut(seg).unwrap();
+            }
+        }
+
+        let last = parts[parts.len() - 1];
+        if !matches!(curr, Self::Map(_)) {
+            *curr = Self::Map(BTreeMap::new());
+        }
+        if let Self::Map(m) = curr {
+            m.insert(last.to_string(), val);
+        }
+    }
 }
 
 // Equality implementation with canonical total ordering for floats

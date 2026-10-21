@@ -419,13 +419,13 @@ impl DistributedClusterNode {
     fn apply_write_locally(&self, op: WalOp) -> Result<()> {
         match op {
             WalOp::CreateNode { labels, properties, .. } => {
-                self.db.create_node(labels, properties)?;
+                self.db.create_node(labels, properties.into_iter().collect())?;
             }
             WalOp::DeleteNode { id } => {
                 self.db.delete_node(crate::id::NodeId(id))?;
             }
             WalOp::CreateEdge { source, target, rel_type, properties, .. } => {
-                self.db.create_edge(crate::id::NodeId(source), crate::id::NodeId(target), &rel_type, properties)?;
+                self.db.create_edge(crate::id::NodeId(source), crate::id::NodeId(target), &rel_type, properties.into_iter().collect())?;
             }
             WalOp::DeleteEdge { id } => {
                 self.db.delete_edge(crate::id::RelId(id))?;

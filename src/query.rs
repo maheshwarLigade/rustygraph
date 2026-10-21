@@ -46,12 +46,12 @@ impl<'a> QueryContext<'a> {
         self.edge_bindings.get(alias).copied()
     }
 
-    /// Get a property value from a bound node or relationship.
+    /// Get a property value (exact or nested NoSQL path) from a bound node or relationship.
     pub fn prop(&self, alias: &str, key: &str) -> Option<&'a PropertyValue> {
         if let Some(n) = self.node(alias) {
-            n.prop(key)
+            n.prop_path(key)
         } else if let Some(e) = self.edge(alias) {
-            e.prop(key)
+            e.prop_path(key)
         } else {
             None
         }

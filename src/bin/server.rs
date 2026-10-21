@@ -26,11 +26,11 @@ fn main() {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--http" if i + 1 < args.len() => {
+            "--http" | "--listen-http" | "--http-addr" if i + 1 < args.len() => {
                 http_addr = args[i + 1].clone();
                 i += 2;
             }
-            "--cluster" if i + 1 < args.len() => {
+            "--cluster" | "--listen-cluster" | "--cluster-addr" if i + 1 < args.len() => {
                 cluster_addr = Some(args[i + 1].clone());
                 i += 2;
             }
@@ -38,20 +38,21 @@ fn main() {
                 cluster_addr = None;
                 i += 1;
             }
-            "--node-id" if i + 1 < args.len() => {
+            "--node-id" | "--cluster-node-id" if i + 1 < args.len() => {
                 node_id = args[i + 1].clone();
                 i += 2;
             }
-            "--mode" if i + 1 < args.len() => {
+            "--mode" | "--cluster-mode" if i + 1 < args.len() => {
                 cluster_mode = args[i + 1].clone();
                 i += 2;
             }
-            "--peers" if i + 1 < args.len() => {
-                peer_addrs = args[i + 1]
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect();
+            "--peers" | "--peer" | "--cluster-peer" | "--cluster-peers" if i + 1 < args.len() => {
+                for peer in args[i + 1].split(',') {
+                    let trimmed = peer.trim();
+                    if !trimmed.is_empty() {
+                        peer_addrs.push(trimmed.to_string());
+                    }
+                }
                 i += 2;
             }
             "--data-dir" if i + 1 < args.len() => {

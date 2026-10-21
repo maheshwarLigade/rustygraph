@@ -35,7 +35,7 @@ fn test_wal_crc32_and_recovery() -> Result<()> {
     let dir = temp_test_dir("wal_crc");
     let wal = WalManager::open(&dir, FsyncPolicy::Always)?;
 
-    let mut props = HashMap::new();
+    let mut props = std::collections::BTreeMap::new();
     props.insert("name".to_string(), PropertyValue::from("Alice"));
     props.insert("age".to_string(), PropertyValue::from(30));
 

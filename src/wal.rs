@@ -2,7 +2,7 @@ use crate::error::{Error, Result};
 use crate::value::PropertyValue;
 use crate::vector::VectorSimilarity;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -53,28 +53,28 @@ pub enum WalOp {
     CreateNode {
         id: u64,
         labels: Vec<String>,
-        properties: HashMap<String, PropertyValue>,
+        properties: BTreeMap<String, PropertyValue>,
     },
     DeleteNode {
         id: u64,
     },
     UpdateNodeProperties {
         id: u64,
-        properties: HashMap<String, PropertyValue>,
+        properties: BTreeMap<String, PropertyValue>,
     },
     CreateEdge {
         id: u64,
         source: u64,
         target: u64,
         rel_type: String,
-        properties: HashMap<String, PropertyValue>,
+        properties: BTreeMap<String, PropertyValue>,
     },
     DeleteEdge {
         id: u64,
     },
     UpdateEdgeProperties {
         id: u64,
-        properties: HashMap<String, PropertyValue>,
+        properties: BTreeMap<String, PropertyValue>,
     },
     CreateVectorIndex {
         name: String,

@@ -135,6 +135,7 @@ pub struct Traverser<'a> {
     max_depth: Option<usize>,
     uniqueness: Uniqueness,
     order: TraversalOrder,
+    max_edges_per_node: Option<usize>,
 }
 
 impl<'a> Traverser<'a> {
@@ -149,6 +150,7 @@ impl<'a> Traverser<'a> {
             max_depth: None,
             uniqueness: Uniqueness::Node,
             order: TraversalOrder::BreadthFirst,
+            max_edges_per_node: None,
         }
     }
 
@@ -163,7 +165,14 @@ impl<'a> Traverser<'a> {
             max_depth: None,
             uniqueness: Uniqueness::Node,
             order: TraversalOrder::BreadthFirst,
+            max_edges_per_node: None,
         }
+    }
+
+    /// Cap the number of incident edges traversed per node to prevent supernode blowup / freezes.
+    pub fn with_supernode_limit(mut self, limit: usize) -> Self {
+        self.max_edges_per_node = Some(limit);
+        self
     }
 
     /// Traverse outgoing relationships: `(start)->(...)`.
@@ -264,7 +273,11 @@ impl<'a> Traverser<'a> {
                     let can_expand = self.max_depth.map_or(true, |max| depth < max);
                     if can_expand {
                         let current_node = path.end_node();
-                        if let Ok(edges) = self.graph.incident_edges(current_node, self.direction) {
+                        let edges_res = match self.max_edges_per_node {
+                            Some(limit) => self.graph.incident_edges_paged(current_node, self.direction, None, 0, limit),
+                            None => self.graph.incident_edges(current_node, self.direction),
+                        };
+                        if let Ok(edges) = edges_res {
                             for edge in edges {
                                 if let Some(filter_types) = &self.rel_types {
                                     if !filter_types.contains(&edge.rel_type) {
@@ -306,7 +319,11 @@ impl<'a> Traverser<'a> {
                     let can_expand = self.max_depth.map_or(true, |max| depth < max);
                     if can_expand {
                         let current_node = path.end_node();
-                        if let Ok(edges) = self.graph.incident_edges(current_node, self.direction) {
+                        let edges_res = match self.max_edges_per_node {
+                            Some(limit) => self.graph.incident_edges_paged(current_node, self.direction, None, 0, limit),
+                            None => self.graph.incident_edges(current_node, self.direction),
+                        };
+                        if let Ok(edges) = edges_res {
                             // Reverse to explore in natural order with stack
                             for edge in edges.into_iter().rev() {
                                 if let Some(filter_types) = &self.rel_types {

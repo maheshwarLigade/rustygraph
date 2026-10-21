@@ -37,6 +37,17 @@ An ultra-fast, in-memory labeled property graph database library written in Rust
   - **Configurable CP Mode (Neo4j Causal Clustering)**: Strict majority quorum writes ($> N/2$), leader election, and automatic write rejection on minority partitions to strictly prevent split-brain.
   - **Configurable AP Mode (High Availability)**: 100% write availability across all partitions with Lamport logical clocks and anti-entropy Last-Write-Wins (LWW) reconciliation upon healing.
   - **Zero-Dependency Virtual Network**: In-memory network partition simulation (`network.partition(...)`, `network.isolate(...)`, `network.heal()`) for reproducible distributed testing.
+- **Supernode & Dense Hub Skew Mitigation**:
+  - Solves the classic power-law degree skew problem where high-degree hubs cause out-of-memory errors and traversal latency spikes.
+  - Dynamic `is_supernode(node, threshold)` detection and zero-copy cursor/paginated edge scanning (`incident_edges_paged(node, dir, rel_type, offset, limit)`).
+  - Traversal edge-capping (`Traverser::with_supernode_limit(limit)`) preventing combinatorial path explosions on hubs.
+- **Graph as NoSQL Multi-Model Fusion**:
+  - **Nested Document Paths**: Seamless dot-notation traversal and mutation inside complex JSON documents in openCypher and property maps (`u.profile.address.city`).
+  - **High-Throughput Bulk Ingestion**: Low-latency batch ingestion endpoints (`POST /bulk/nodes`, `POST /bulk/edges`) with atomic WAL logging.
+  - **Temporal TTL Expiration**: Automatic Time-To-Live expiration and cascading background pruning on ephemeral nodes (`POST /nodes/:id/ttl`, `POST /ttl/prune`).
+- **Production Dockerization**:
+  - Multi-stage minimal production `Dockerfile` with unprivileged user security and built-in healthchecks.
+  - Zero-configuration `docker-compose.yml` supporting standalone and 3-node distributed clusters.
 - **Concurrency & Persistence**:
   - `ConcurrentGraph` with `Arc<RwLock>` for multi-threaded reads/writes.
   - Full JSON export and import (`to_json` / `from_json`).
@@ -412,6 +423,10 @@ rustygraph> :cluster
 | `POST` | `/nodes` | Create labeled node with properties | `{"labels": ["User"], "properties": {"name": "Alice"}}` |
 | `GET` | `/nodes/:id` | Fetch node properties & adjacent edges | `none` |
 | `DELETE` | `/nodes/:id` | Cascading delete node & relationships | `none` |
+| `POST` | `/nodes/:id/ttl` | Set automatic Time-To-Live (TTL) expiration on node | `{"ttl_seconds": 3600}` |
+| `POST` | `/ttl/prune` | Trigger immediate cascade pruning of all expired nodes | `none` |
+| `POST` | `/bulk/nodes` | High-throughput batch ingestion of nodes | `{"nodes": [{"labels": ["Dev"], "properties": {"k": "v"}}]}` |
+| `POST` | `/bulk/edges` | High-throughput batch ingestion of edges | `{"edges": [{"source": 1, "target": 2, "rel_type": "KNOWS"}]}` |
 | `POST` | `/edges` | Create relationship between nodes | `{"source": 1, "target": 2, "type": "KNOWS"}` |
 | `GET` | `/edges/:id` | Fetch relationship details | `none` |
 | `DELETE` | `/edges/:id` | Delete relationship | `none` |
@@ -422,6 +437,53 @@ rustygraph> :cluster
 | `POST` | `/import` | Restore full database from JSON | Raw JSON dump string |
 | `GET` | `/cluster/status`| Cluster role, term, active peers | `none` |
 | `POST` | `/cluster/join` | Join an existing cluster peer | `{"peer_address": "127.0.0.1:9002"}` |
+
+---
+
+## 🐳 Docker Deployment
+
+RustyGraph provides a multi-stage production Docker build and out-of-the-box Compose setup for both standalone and distributed deployments.
+
+### 1. Standalone Deployment (Recommended for Single Nodes)
+
+Run an ultra-fast standalone node with persistent storage and healthchecks:
+
+```bash
+# Using Docker Compose
+docker compose up -d rustygraph
+
+# Or using plain Docker CLI
+docker build -t rustygraph:latest .
+docker run -d \
+  --name rustygraph \
+  -p 8080:8080 \
+  -v rustygraph_data:/data \
+  rustygraph:latest
+```
+
+Verify status:
+```bash
+curl http://localhost:8080/health
+# {"status":"healthy","engine":"rusty_graph"}
+```
+
+### 2. High-Availability 3-Node Distributed Cluster (CP Quorum)
+
+Spin up an enterprise 3-node cluster with automated leader election, majority quorum replication, and minority write rejection:
+
+```bash
+docker compose --profile cluster up -d
+```
+
+Cluster topology:
+- **Node 1 (CP Leader / Seed)**: HTTP `http://localhost:8081`, Cluster TCP `7001`
+- **Node 2 (Follower)**: HTTP `http://localhost:8082`, Cluster TCP `7002`
+- **Node 3 (Follower)**: HTTP `http://localhost:8083`, Cluster TCP `7003`
+
+Check cluster status from any node:
+```bash
+curl http://localhost:8081/cluster/status
+```
 
 ---
 
@@ -441,6 +503,7 @@ rustygraph> :cluster
 | **Phase 9** | Multi-Language SDKs & C FFI (Native Go SDK via dynamic linking & Java 21 SDK via FFM) | ✅ Complete |
 | **Phase 10** | Standalone NoSQL Distributed Server & CLI (WAL Durability, TCP Clustering, REST API, REPL) | ✅ Complete |
 | **Phase 11** | Full Cypher Mutations & ACID Transactions (CREATE/SET/DELETE, Aggregations, Isolation, Timeout Reaping) | ✅ Complete |
+| **Phase 12** | Supernode Skew Mitigation, Graph-as-NoSQL Multi-Model Fusion & Production Dockerization | ✅ Complete |
 
 ---
 

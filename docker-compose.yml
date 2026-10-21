@@ -1,0 +1,143 @@
+# ==============================================================================
+# RustyGraph Docker Compose Configuration
+# Supports Standalone Mode and 3-Node Distributed Cluster Configurations
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # Standalone Node (Default)
+  # Ultra-fast native graph database with ACID WAL and HNSW vector index
+  # Run: docker compose up rustygraph
+  # ----------------------------------------------------------------------------
+  rustygraph:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rustygraph-standalone
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - rustygraph_standalone_data:/data
+    command: ["--listen-http", "0.0.0.0:8080", "--data-dir", "/data"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ----------------------------------------------------------------------------
+  # Distributed Cluster - Node 1 (CP Leader / Seed)
+  # Profile: cluster
+  # Run: docker compose --profile cluster up
+  # ----------------------------------------------------------------------------
+  cluster-node1:
+    profiles: ["cluster"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rustygraph-cluster-node1
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+      - "7001:7000"
+    volumes:
+      - node1_data:/data
+    command: [
+      "--listen-http", "0.0.0.0:8080",
+      "--listen-cluster", "0.0.0.0:7000",
+      "--cluster-node-id", "1",
+      "--cluster-mode", "cp",
+      "--data-dir", "/data"
+    ]
+    networks:
+      - rustygraph-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ----------------------------------------------------------------------------
+  # Distributed Cluster - Node 2 (Replicated Follower)
+  # Profile: cluster
+  # ----------------------------------------------------------------------------
+  cluster-node2:
+    profiles: ["cluster"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rustygraph-cluster-node2
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+      - "7002:7000"
+    volumes:
+      - node2_data:/data
+    depends_on:
+      - cluster-node1
+    command: [
+      "--listen-http", "0.0.0.0:8080",
+      "--listen-cluster", "0.0.0.0:7000",
+      "--cluster-node-id", "2",
+      "--cluster-mode", "cp",
+      "--cluster-peer", "cluster-node1:7000",
+      "--data-dir", "/data"
+    ]
+    networks:
+      - rustygraph-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ----------------------------------------------------------------------------
+  # Distributed Cluster - Node 3 (Replicated Follower)
+  # Profile: cluster
+  # ----------------------------------------------------------------------------
+  cluster-node3:
+    profiles: ["cluster"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rustygraph-cluster-node3
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+      - "7003:7000"
+    volumes:
+      - node3_data:/data
+    depends_on:
+      - cluster-node1
+    command: [
+      "--listen-http", "0.0.0.0:8080",
+      "--listen-cluster", "0.0.0.0:7000",
+      "--cluster-node-id", "3",
+      "--cluster-mode", "cp",
+      "--cluster-peer", "cluster-node1:7000",
+      "--data-dir", "/data"
+    ]
+    networks:
+      - rustygraph-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  rustygraph-net:
+    driver: bridge
+
+volumes:
+  rustygraph_standalone_data:
+  node1_data:
+  node2_data:
+  node3_data:

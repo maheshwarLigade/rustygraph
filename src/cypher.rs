@@ -616,11 +616,20 @@ impl Parser {
                         };
 
                         self.expect(Token::Dot)?;
-                        let prop = if let Some(Token::Ident(p)) = self.next() {
+                        let mut prop = if let Some(Token::Ident(p)) = self.next() {
                             p
                         } else {
                             return Err(GraphError::InvalidOperation("Expected property in WHERE".into()));
                         };
+                        while self.peek() == Some(&Token::Dot) {
+                            self.next();
+                            if let Some(Token::Ident(sub)) = self.next() {
+                                prop.push('.');
+                                prop.push_str(&sub);
+                            } else {
+                                return Err(GraphError::InvalidOperation("Expected property segment after dot in WHERE".into()));
+                            }
+                        }
 
                         let op = match self.next() {
                             Some(Token::Eq) => CompOp::Eq,
@@ -665,11 +674,20 @@ impl Parser {
                             return Err(GraphError::InvalidOperation("Expected alias in SET clause".into()));
                         };
                         self.expect(Token::Dot)?;
-                        let prop = if let Some(Token::Ident(p)) = self.next() {
+                        let mut prop = if let Some(Token::Ident(p)) = self.next() {
                             p
                         } else {
                             return Err(GraphError::InvalidOperation("Expected property in SET clause".into()));
                         };
+                        while self.peek() == Some(&Token::Dot) {
+                            self.next();
+                            if let Some(Token::Ident(sub)) = self.next() {
+                                prop.push('.');
+                                prop.push_str(&sub);
+                            } else {
+                                return Err(GraphError::InvalidOperation("Expected property segment after dot in SET".into()));
+                            }
+                        }
                         self.expect(Token::Eq)?;
                         let val = match self.next() {
                             Some(Token::StringLit(s)) => PropertyValue::String(s),
@@ -740,7 +758,14 @@ impl Parser {
                         let mut prop = None;
                         if self.peek() == Some(&Token::Dot) {
                             self.next();
-                            if let Some(Token::Ident(p)) = self.next() {
+                            if let Some(Token::Ident(mut p)) = self.next() {
+                                while self.peek() == Some(&Token::Dot) {
+                                    self.next();
+                                    if let Some(Token::Ident(sub)) = self.next() {
+                                        p.push('.');
+                                        p.push_str(&sub);
+                                    }
+                                }
                                 prop = Some(p);
                             }
                         }
@@ -810,7 +835,14 @@ impl Parser {
                     let mut prop = None;
                     if self.peek() == Some(&Token::Dot) {
                         self.next();
-                        if let Some(Token::Ident(p)) = self.next() {
+                        if let Some(Token::Ident(mut p)) = self.next() {
+                            while self.peek() == Some(&Token::Dot) {
+                                self.next();
+                                if let Some(Token::Ident(sub)) = self.next() {
+                                    p.push('.');
+                                    p.push_str(&sub);
+                                }
+                            }
                             prop = Some(p);
                         }
                     }
@@ -836,7 +868,14 @@ impl Parser {
                 self.next();
                 if self.peek() == Some(&Token::Dot) {
                     self.next();
-                    if let Some(Token::Ident(prop)) = self.next() {
+                    if let Some(Token::Ident(mut prop)) = self.next() {
+                        while self.peek() == Some(&Token::Dot) {
+                            self.next();
+                            if let Some(Token::Ident(sub)) = self.next() {
+                                prop.push('.');
+                                prop.push_str(&sub);
+                            }
+                        }
                         let name = format!("{}.{}", alias, prop);
                         Ok(ReturnItem {
                             kind: ReturnKind::Property(alias, prop),
@@ -871,11 +910,18 @@ impl Parser {
             return Err(GraphError::InvalidOperation(format!("Expected identifier in {}()", func_name)));
         };
         self.expect(Token::Dot)?;
-        let prop = if let Some(Token::Ident(p)) = self.next() {
+        let mut prop = if let Some(Token::Ident(p)) = self.next() {
             p
         } else {
             return Err(GraphError::InvalidOperation(format!("Expected property in {}()", func_name)));
         };
+        while self.peek() == Some(&Token::Dot) {
+            self.next();
+            if let Some(Token::Ident(sub)) = self.next() {
+                prop.push('.');
+                prop.push_str(&sub);
+            }
+        }
         self.expect(Token::RParen)?;
         let name = format!("{}({}.{})", func_name, alias, prop);
         Ok(ReturnItem {
@@ -1100,9 +1146,9 @@ impl Graph {
         // Helper closures for reading properties / nodes post-mutation
         let get_prop = |b: &MatchBinding, alias: &str, prop: &str| -> Option<PropertyValue> {
             if let Some(&nid) = b.nodes.get(alias) {
-                self.get_node(nid).and_then(|n| n.prop(prop)).cloned()
+                self.get_node(nid).and_then(|n| n.prop_path(prop)).cloned()
             } else if let Some(&eid) = b.edges.get(alias) {
-                self.get_edge(eid).and_then(|e| e.prop(prop)).cloned()
+                self.get_edge(eid).and_then(|e| e.prop_path(prop)).cloned()
             } else {
                 None
             }

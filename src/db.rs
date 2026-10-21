@@ -155,7 +155,7 @@ impl StandaloneDatabase {
         let op = WalOp::CreateNode {
             id: node_id.raw(),
             labels,
-            properties,
+            properties: properties.into_iter().collect(),
         };
         self.wal.append(op)?;
         self.track_operation();
@@ -199,7 +199,7 @@ impl StandaloneDatabase {
             source: source.raw(),
             target: target.raw(),
             rel_type: rel_type.to_string(),
-            properties,
+            properties: properties.into_iter().collect(),
         };
         self.wal.append(op)?;
         self.track_operation();
@@ -220,6 +220,77 @@ impl StandaloneDatabase {
             self.track_operation();
         }
         Ok(existed)
+    }
+
+    /// High-throughput batch ingestion of nodes with atomic durability.
+    pub fn bulk_import_nodes(&self, items: Vec<(Vec<String>, HashMap<String, PropertyValue>)>) -> Result<Vec<NodeId>> {
+        let mut ids = Vec::with_capacity(items.len());
+        self.graph.with_write(|g| {
+            for (labels, props) in &items {
+                let id = g.create_node_with(|n| {
+                    for l in labels {
+                        n.add_label(l);
+                    }
+                    for (k, v) in props {
+                        n.set_prop(k, v.clone());
+                    }
+                })?;
+                ids.push(id);
+            }
+            Ok::<(), Error>(())
+        })?;
+
+        for (i, (labels, props)) in items.into_iter().enumerate() {
+            let op = WalOp::CreateNode {
+                id: ids[i].raw(),
+                labels,
+                properties: props.into_iter().collect(),
+            };
+            self.wal.append(op)?;
+            self.track_operation();
+        }
+
+        Ok(ids)
+    }
+
+    /// High-throughput batch ingestion of edges with atomic durability.
+    pub fn bulk_import_edges(&self, items: Vec<(NodeId, NodeId, String, HashMap<String, PropertyValue>)>) -> Result<Vec<RelId>> {
+        let mut ids = Vec::with_capacity(items.len());
+        self.graph.with_write(|g| {
+            for (src, dst, rel_type, props) in &items {
+                let id = g.create_edge_with(*src, *dst, rel_type, |r| {
+                    for (k, v) in props {
+                        r.set_prop(k, v.clone());
+                    }
+                })?;
+                ids.push(id);
+            }
+            Ok::<(), Error>(())
+        })?;
+
+        for (i, (src, dst, rel_type, props)) in items.into_iter().enumerate() {
+            let op = WalOp::CreateEdge {
+                id: ids[i].raw(),
+                source: src.raw(),
+                target: dst.raw(),
+                rel_type,
+                properties: props.into_iter().collect(),
+            };
+            self.wal.append(op)?;
+            self.track_operation();
+        }
+
+        Ok(ids)
+    }
+
+    /// Set an automatic Time-To-Live (TTL) on a node.
+    pub fn set_node_ttl(&self, node: NodeId, ttl: std::time::Duration) -> Result<()> {
+        self.graph.with_write(|g| g.set_node_ttl(node, ttl))
+    }
+
+    /// Prune all nodes whose TTL has expired across the database.
+    pub fn prune_expired_nodes(&self) -> Result<usize> {
+        self.graph.with_write(|g| g.prune_expired_nodes())
     }
 
     // =========================================================================

@@ -1,0 +1,14 @@
+target/
+**/*.rs.bk
+.git/
+.github/
+.gemini/
+.agents/
+docs/
+bindings/
+examples/
+tests/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

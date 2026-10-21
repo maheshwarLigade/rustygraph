@@ -85,6 +85,38 @@ struct JoinClusterRequest {
     peer_address: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BulkNodeItem {
+    #[serde(default)]
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub properties: HashMap<String, PropertyValue>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkNodesRequest {
+    pub nodes: Vec<BulkNodeItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkEdgeItem {
+    pub source: u64,
+    pub target: u64,
+    pub rel_type: String,
+    #[serde(default)]
+    pub properties: HashMap<String, PropertyValue>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkEdgesRequest {
+    pub edges: Vec<BulkEdgeItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetTtlRequest {
+    pub ttl_seconds: u64,
+}
+
 /// Standalone HTTP REST server exposing full graph, Cypher, NoSQL, and cluster APIs.
 pub struct StandaloneServer {
     config: ServerConfig,
@@ -396,6 +428,86 @@ impl StandaloneServer {
                     }
                 } else {
                     HttpResponse::error(StatusCode(400), "Invalid Node ID")
+                }
+            }
+            // Bulk Ingestion & NoSQL Batch APIs
+            (&Method::Post, "/bulk/nodes") => {
+                if let Ok(req) = serde_json::from_slice::<BulkNodesRequest>(body) {
+                    let items: Vec<(Vec<String>, HashMap<String, PropertyValue>)> = req
+                        .nodes
+                        .into_iter()
+                        .map(|n| (n.labels, n.properties))
+                        .collect();
+                    match self.db.bulk_import_nodes(items) {
+                        Ok(ids) => {
+                            let raw_ids: Vec<u64> = ids.into_iter().map(|id| id.raw()).collect();
+                            HttpResponse::json(&serde_json::json!({
+                                "success": true,
+                                "count": raw_ids.len(),
+                                "node_ids": raw_ids,
+                            }))
+                        }
+                        Err(e) => HttpResponse::error(StatusCode(500), &e.to_string()),
+                    }
+                } else {
+                    HttpResponse::error(StatusCode(400), "Invalid JSON for /bulk/nodes (expected {\"nodes\": [...]})")
+                }
+            }
+            (&Method::Post, "/bulk/edges") => {
+                if let Ok(req) = serde_json::from_slice::<BulkEdgesRequest>(body) {
+                    let items: Vec<(NodeId, NodeId, String, HashMap<String, PropertyValue>)> = req
+                        .edges
+                        .into_iter()
+                        .map(|e| (NodeId(e.source), NodeId(e.target), e.rel_type, e.properties))
+                        .collect();
+                    match self.db.bulk_import_edges(items) {
+                        Ok(ids) => {
+                            let raw_ids: Vec<u64> = ids.into_iter().map(|id| id.raw()).collect();
+                            HttpResponse::json(&serde_json::json!({
+                                "success": true,
+                                "count": raw_ids.len(),
+                                "edge_ids": raw_ids,
+                            }))
+                        }
+                        Err(e) => HttpResponse::error(StatusCode(500), &e.to_string()),
+                    }
+                } else {
+                    HttpResponse::error(StatusCode(400), "Invalid JSON for /bulk/edges (expected {\"edges\": [...]})")
+                }
+            }
+
+            // TTL (Time-To-Live) Node Expiration
+            (&Method::Post, "/ttl/prune") => {
+                match self.db.prune_expired_nodes() {
+                    Ok(pruned) => HttpResponse::json(&serde_json::json!({
+                        "success": true,
+                        "pruned_nodes": pruned,
+                    })),
+                    Err(e) => HttpResponse::error(StatusCode(500), &e.to_string()),
+                }
+            }
+            (&Method::Post, p) if p.starts_with("/nodes/") && p.ends_with("/ttl") => {
+                let parts: Vec<&str> = p.split('/').collect();
+                if parts.len() == 4 {
+                    if let Ok(id) = parts[2].parse::<u64>() {
+                        if let Ok(req) = serde_json::from_slice::<SetTtlRequest>(body) {
+                            match self.db.set_node_ttl(NodeId(id), std::time::Duration::from_secs(req.ttl_seconds)) {
+                                Ok(_) => HttpResponse::json(&serde_json::json!({
+                                    "success": true,
+                                    "node_id": id,
+                                    "ttl_seconds": req.ttl_seconds,
+                                    "message": format!("TTL of {}s set on node {}", req.ttl_seconds, id),
+                                })),
+                                Err(e) => HttpResponse::error(StatusCode(400), &e.to_string()),
+                            }
+                        } else {
+                            HttpResponse::error(StatusCode(400), "Invalid JSON payload for /nodes/:id/ttl (expected {\"ttl_seconds\": 60})")
+                        }
+                    } else {
+                        HttpResponse::error(StatusCode(400), "Invalid Node ID")
+                    }
+                } else {
+                    HttpResponse::error(StatusCode(404), "Route not found")
                 }
             }
             (&Method::Delete, p) if p.starts_with("/nodes/") => {

@@ -191,6 +191,33 @@ impl Node {
     pub fn remove_prop(&mut self, key: &str) -> Option<PropertyValue> {
         self.properties.remove(key)
     }
+
+    /// Get a property value by exact key or nested dot-separated NoSQL path (e.g. "profile.address.city").
+    pub fn prop_path(&self, path: &str) -> Option<&PropertyValue> {
+        if let Some(dot_idx) = path.find('.') {
+            let root_key = &path[..dot_idx];
+            let sub_path = &path[dot_idx + 1..];
+            self.prop(root_key).and_then(|val| val.get_path(sub_path))
+        } else {
+            self.prop(path)
+        }
+    }
+
+    /// Set a property value by exact key or nested dot-separated NoSQL path.
+    pub fn set_prop_path(&mut self, path: &str, val: PropertyValue) {
+        if let Some(dot_idx) = path.find('.') {
+            let root_key = &path[..dot_idx];
+            let sub_path = &path[dot_idx + 1..];
+            let mut root_val = self
+                .prop(root_key)
+                .cloned()
+                .unwrap_or_else(|| PropertyValue::Map(std::collections::BTreeMap::new()));
+            root_val.set_path(sub_path, val);
+            self.set_prop(root_key, root_val);
+        } else {
+            self.set_prop(path, val);
+        }
+    }
 }
 
 /// A Relationship (Edge) connecting two nodes, with a specific type and properties.
@@ -261,5 +288,32 @@ impl Relationship {
     #[inline]
     pub fn remove_prop(&mut self, key: &str) -> Option<PropertyValue> {
         self.properties.remove(key)
+    }
+
+    /// Get a property value by exact key or nested dot-separated NoSQL path (e.g. "metadata.weight").
+    pub fn prop_path(&self, path: &str) -> Option<&PropertyValue> {
+        if let Some(dot_idx) = path.find('.') {
+            let root_key = &path[..dot_idx];
+            let sub_path = &path[dot_idx + 1..];
+            self.prop(root_key).and_then(|val| val.get_path(sub_path))
+        } else {
+            self.prop(path)
+        }
+    }
+
+    /// Set a property value by exact key or nested dot-separated NoSQL path.
+    pub fn set_prop_path(&mut self, path: &str, val: PropertyValue) {
+        if let Some(dot_idx) = path.find('.') {
+            let root_key = &path[..dot_idx];
+            let sub_path = &path[dot_idx + 1..];
+            let mut root_val = self
+                .prop(root_key)
+                .cloned()
+                .unwrap_or_else(|| PropertyValue::Map(std::collections::BTreeMap::new()));
+            root_val.set_path(sub_path, val);
+            self.set_prop(root_key, root_val);
+        } else {
+            self.set_prop(path, val);
+        }
     }
 }
