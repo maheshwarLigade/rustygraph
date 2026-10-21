@@ -58,6 +58,8 @@ pub mod algo;
 pub mod cluster;
 pub mod concurrent;
 pub mod cypher;
+pub mod db;
+pub mod distributed;
 pub mod error;
 pub mod ffi;
 pub mod graph;
@@ -66,11 +68,14 @@ pub mod index;
 pub mod model;
 pub mod query;
 pub mod serde_export;
+pub mod server;
+pub mod snapshot;
 pub mod stats;
 pub mod storage;
 pub mod traversal;
 pub mod value;
 pub mod vector;
+pub mod wal;
 
 /// Convenient re-exports of common types.
 pub mod prelude {
@@ -87,11 +92,16 @@ pub mod prelude {
     pub use crate::index::{IndexKey, IndexManager, PropertyIndex};
     pub use crate::model::{Direction, Node, Properties, Relationship};
     pub use crate::query::{QueryBuilder, QueryContext};
+    pub use crate::db::{DatabaseConfig, DatabaseStats, StandaloneDatabase};
+    pub use crate::distributed::{ClusterMessage, ClusterPeer, ClusterStatus, DistributedClusterNode};
     pub use crate::serde_export::GraphDump;
+    pub use crate::server::{ServerConfig, StandaloneServer};
+    pub use crate::snapshot::{SnapshotManager, SnapshotMetadata};
     pub use crate::stats::GraphStats;
     pub use crate::traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
     pub use crate::value::PropertyValue;
     pub use crate::vector::{VectorIndex, VectorSearchResult, VectorSimilarity};
+    pub use crate::wal::{crc32, FsyncPolicy, WalManager, WalOp, WalRecord};
 }
 
 pub use algo::{
@@ -101,6 +111,8 @@ pub use algo::{
 };
 pub use concurrent::ConcurrentGraph;
 pub use cypher::CypherResult;
+pub use db::{DatabaseConfig, DatabaseStats, StandaloneDatabase};
+pub use distributed::{ClusterPeer, ClusterStatus, DistributedClusterNode};
 pub use error::{GraphError, Result};
 pub use graph::Graph;
 pub use id::{NodeId, RelId};
@@ -108,10 +120,13 @@ pub use index::{IndexKey, IndexManager, PropertyIndex};
 pub use model::{Direction, Node, Properties, Relationship};
 pub use query::{QueryBuilder, QueryContext};
 pub use serde_export::GraphDump;
+pub use server::{ServerConfig, StandaloneServer};
+pub use snapshot::{SnapshotManager, SnapshotMetadata};
 pub use stats::GraphStats;
 pub use traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
 pub use value::PropertyValue;
 pub use vector::{VectorIndex, VectorSearchResult, VectorSimilarity};
+pub use wal::{FsyncPolicy, WalManager, WalOp, WalRecord};
 
 #[cfg(test)]
 mod tests {

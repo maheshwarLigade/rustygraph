@@ -879,6 +879,11 @@ impl Graph {
         self.vector_indices.get(name)
     }
 
+    /// Returns an iterator over all vector indices.
+    pub fn vector_indices(&self) -> impl Iterator<Item = &VectorIndex> {
+        self.vector_indices.values()
+    }
+
     /// Search the vector index for the top `k` nearest neighbors matching `query_vector`.
     pub fn query_vector_index(
         &self,

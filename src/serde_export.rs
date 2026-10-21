@@ -5,11 +5,15 @@ use crate::model::{Node, Relationship};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::vector::VectorIndex;
+
 /// Serializable dump structure containing all nodes and relationships.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphDump {
     pub nodes: Vec<Node>,
     pub relationships: Vec<Relationship>,
+    #[serde(default)]
+    pub vector_indices: Vec<VectorIndex>,
 }
 
 impl Graph {
@@ -18,6 +22,7 @@ impl Graph {
         GraphDump {
             nodes: self.nodes().cloned().collect(),
             relationships: self.edges().cloned().collect(),
+            vector_indices: self.vector_indices().cloned().collect(),
         }
     }
 
@@ -57,6 +62,17 @@ impl Graph {
             graph.create_edge_with(new_source, new_target, old_rel.rel_type, |r| {
                 r.properties = props;
             })?;
+        }
+
+        // Recreate vector indices
+        for v_idx in dump.vector_indices {
+            let _ = graph.create_vector_index(
+                &v_idx.name,
+                &v_idx.label,
+                &v_idx.property_key,
+                v_idx.dimensions,
+                v_idx.metric,
+            );
         }
 
         Ok(graph)

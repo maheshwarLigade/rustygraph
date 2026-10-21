@@ -337,6 +337,89 @@ cargo run --example cap_distributed_cluster
 
 ---
 
+## 🌐 Standalone NoSQL Server & Interactive CLI
+
+RustyGraph can run as a **standalone NoSQL distributed database server** with zero driver dependencies, accessible via standard HTTP REST, WebSockets, or the native interactive Cypher REPL CLI.
+
+### Starting the Server (`rustygraph-server`)
+
+```bash
+# Build standalone binaries
+cargo build --release
+
+# Start standalone server on HTTP port 8000 and cluster port 9001
+cargo run --bin rustygraph-server -- --http 127.0.0.1:8000 --cluster 127.0.0.1:9001 --node-id node-1 --data-dir ./data
+```
+
+### Interactive Cypher CLI (`rustygraph-cli`)
+
+Launch the terminal REPL client to query and manage the database:
+
+```bash
+# Launch interactive REPL
+cargo run --bin rustygraph-cli -- --server http://127.0.0.1:8000
+
+# One-shot batch execution
+cargo run --bin rustygraph-cli -- --server http://127.0.0.1:8000 --exec "MATCH (p:Person) RETURN p.name, p.age"
+```
+
+In the interactive REPL:
+```text
+rustygraph> MATCH (p:Person)-[:KNOWS]->(f:Person) RETURN p.name, f.name;
+┌────────┬────────┐
+│ p.name │ f.name │
+├────────┼────────┤
+│ Alice  │ Bob    │
+└────────┴────────┘
+(1 row in 1.42ms)
+
+rustygraph> :stats
+--- Database Statistics (HTTP 200) ---
+{
+  "node_count": 2,
+  "edge_count": 1,
+  "current_wal_sequence": 3,
+  "last_checkpoint_sequence": 2,
+  "uncheckpointed_ops": 1,
+  "uptime_seconds": 45
+}
+
+rustygraph> :cluster
+--- Cluster Status (HTTP 200) ---
+{
+  "node_id": "node-1",
+  "address": "127.0.0.1:9001",
+  "mode": "CP (Consistency / Majority Quorum)",
+  "is_leader": true,
+  "current_term": 1,
+  "active_peers": [],
+  "known_leader": "node-1"
+}
+```
+
+### HTTP REST API Endpoints
+
+| Method | Endpoint | Description | Sample Payload |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/cypher` | Execute an openCypher query | `{"query": "MATCH (n) RETURN n"}` |
+| `GET` | `/health` | Server health check | `none` |
+| `GET` | `/stats` | Database nodes, edges, WAL metrics | `none` |
+| `POST` | `/nodes` | Create labeled node with properties | `{"labels": ["User"], "properties": {"name": "Alice"}}` |
+| `GET` | `/nodes/:id` | Fetch node properties & adjacent edges | `none` |
+| `DELETE` | `/nodes/:id` | Cascading delete node & relationships | `none` |
+| `POST` | `/edges` | Create relationship between nodes | `{"source": 1, "target": 2, "type": "KNOWS"}` |
+| `GET` | `/edges/:id` | Fetch relationship details | `none` |
+| `DELETE` | `/edges/:id` | Delete relationship | `none` |
+| `POST` | `/vector/indexes` | Create vector similarity index | `{"name": "v", "label": "Doc", "prop_key": "vec", "dimension": 3}` |
+| `POST` | `/vector/search` | Top-k vector nearest-neighbor search | `{"index": "v", "k": 5, "vector": [1.0, 0.0, 0.0]}` |
+| `POST` | `/checkpoint` | Force atomic snapshot & truncate WAL | `none` |
+| `GET` | `/export` | Full graph topology JSON dump | `none` |
+| `POST` | `/import` | Restore full database from JSON | Raw JSON dump string |
+| `GET` | `/cluster/status`| Cluster role, term, active peers | `none` |
+| `POST` | `/cluster/join` | Join an existing cluster peer | `{"peer_address": "127.0.0.1:9002"}` |
+
+---
+
 ## 🗺️ Roadmap & Phase Status
 
 | Phase | Description | Status |
@@ -351,6 +434,7 @@ cargo run --example cap_distributed_cluster
 | **Phase 7** | Vector Database & GraphRAG (Vector Indexing, Cosine/Euclidean/Dot, Hybrid Search) | ✅ Complete |
 | **Phase 8** | Distributed Cluster & CAP Theorem (Configurable CP/AP Modes, Split-Brain Prevention, Virtual Network) | ✅ Complete |
 | **Phase 9** | Multi-Language SDKs & C FFI (Native Go SDK via dynamic linking & Java 21 SDK via FFM) | ✅ Complete |
+| **Phase 10** | Standalone NoSQL Distributed Server & CLI (WAL Durability, TCP Clustering, REST API, REPL) | ✅ Complete |
 
 ---
 

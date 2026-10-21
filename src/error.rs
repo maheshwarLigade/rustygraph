@@ -33,7 +33,28 @@ pub enum GraphError {
 
     #[error("Cluster error: {0}")]
     ClusterError(String),
+
+    #[error("Storage I/O error: {0}")]
+    Storage(String),
+
+    #[error("Network error: {0}")]
+    Network(String),
 }
+
+impl From<std::io::Error> for GraphError {
+    fn from(err: std::io::Error) -> Self {
+        GraphError::Storage(err.to_string())
+    }
+}
+
+impl From<serde_json::Error> for GraphError {
+    fn from(err: serde_json::Error) -> Self {
+        GraphError::SerializationError(err.to_string())
+    }
+}
+
+/// Convenience alias for `GraphError`.
+pub use GraphError as Error;
 
 /// Convenience alias for `Result<T, GraphError>`.
 pub type Result<T> = std::result::Result<T, GraphError>;

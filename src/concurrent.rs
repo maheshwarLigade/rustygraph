@@ -52,6 +52,22 @@ impl ConcurrentGraph {
         f(&mut guard)
     }
 
+    /// Alias for `read` with closure.
+    pub fn with_read<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Graph) -> R,
+    {
+        self.read(f)
+    }
+
+    /// Alias for `write` with closure.
+    pub fn with_write<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut Graph) -> R,
+    {
+        self.write(f)
+    }
+
     /// Returns the total number of nodes in the graph.
     pub fn node_count(&self) -> usize {
         self.read(|g| g.node_count())

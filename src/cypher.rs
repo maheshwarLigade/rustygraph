@@ -5,7 +5,7 @@ use crate::value::PropertyValue;
 use std::fmt;
 
 /// Tabular result returned by executing a Cypher query string.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CypherResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<PropertyValue>>,
