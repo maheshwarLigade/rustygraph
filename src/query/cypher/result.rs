@@ -33,6 +33,11 @@ impl CypherResult {
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
+
+    /// Formats the query result as an ASCII table string.
+    pub fn to_ascii_table(&self) -> String {
+        format!("{self}")
+    }
 }
 
 impl fmt::Display for CypherResult {

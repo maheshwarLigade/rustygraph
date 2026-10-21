@@ -33,6 +33,7 @@
         <li><a href="#gds">Algorithms</a></li>
         <li><a href="#vector-rag">GraphRAG</a></li>
         <li><a href="#rest-api">REST API</a></li>
+        <li><a href="#mcp">MCP Server</a></li>
       </ul>
 
       <button id="themeToggle" class="btn-icon" title="Toggle theme">🌓</button>
@@ -81,6 +82,13 @@
           <li><a href="#rest-api">HTTP REST API Reference</a></li>
           <li><a href="#cli-repl">Interactive CLI REPL</a></li>
           <li><a href="#clustering">Clustering & CAP Theorem</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">AI & Agent Integration</div>
+        <ul class="sidebar-nav">
+          <li><a href="#mcp">Model Context Protocol (MCP) <span class="sidebar-tag">New</span></a></li>
         </ul>
       </div>
 
@@ -852,6 +860,142 @@ for (hit, paths) in rag_results {
             <h4>State Sync & Snapshot Catch-up</h4>
             <p>Automatic snapshot synchronization on cluster join (<code>SyncSnapshotRequest</code> / <code>SyncSnapshotResponse</code>), instantly rehydrating cold or lagging nodes to current state without replaying entire log histories.</p>
           </div>
+        </div>
+      </section>
+
+      <!-- Model Context Protocol (MCP) Section -->
+      <section id="mcp" class="doc-section">
+        <div class="section-tag">AI & Agent Integration</div>
+        <h2 class="section-title">Model Context Protocol (MCP) Server</h2>
+        <p class="lead-p">
+          RustyGraph provides a native, zero-external-dependency <strong>Model Context Protocol (MCP)</strong> server (<code>rustygraph-mcp</code>). Compliant with the official JSON-RPC 2.0 stdio transport specification, it seamlessly integrates with <strong>Anthropic Claude Desktop</strong>, <strong>Cursor</strong>, <strong>Antigravity</strong>, and autonomous AI agents.
+        </p>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <h4>Standard JSON-RPC 2.0 Stdio</h4>
+            <p>Clean separation of communication channels: newline-delimited JSON-RPC messages over <code>stdout</code>/<code>stdin</code>, and diagnostic engine metrics strictly redirected to <code>stderr</code>.</p>
+          </div>
+
+          <div class="feature-card rust">
+            <div class="feature-icon">🧠</div>
+            <h4>Semantic Vector & GraphRAG</h4>
+            <p>Empower your LLMs to execute cosine/euclidean/dot vector similarity searches, keyword BM25 full-text indexing, and multi-hop relational path expansions in a single tool call.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🛡️</div>
+            <h4>Flexible Storage Backends</h4>
+            <p>Connect Claude or agents directly to ephemeral in-memory graphs, durable standalone databases backed by WAL + snapshots, or remote distributed clusters over HTTP.</p>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 2rem; margin-bottom: 0.75rem; color: var(--text-bright);">CLI Usage & Launch Modes</h3>
+        <div class="code-window">
+          <div class="code-header">
+            <span class="code-title">Bash / PowerShell</span>
+            <button class="btn-copy" onclick="navigator.clipboard.writeText(this.closest('.code-window').querySelector('code').innerText)">Copy</button>
+          </div>
+          <pre><code><span class="tok-comment"># 1. Ephemeral In-Memory Mode (Ideal for temporary AI reasoning sessions)</span>
+rustygraph-mcp
+
+<span class="tok-comment"># 2. Standalone Persistent Database (WAL logs + checkpoint snapshots)</span>
+rustygraph-mcp --data ./rustygraph_data
+
+<span class="tok-comment"># 3. Remote Cluster Daemon (Connects to a running rustygraph-server)</span>
+rustygraph-mcp --url http://127.0.0.1:8000
+<span class="tok-comment"># Or shorthand:</span>
+rustygraph-mcp --remote</code></pre>
+        </div>
+
+        <h3 style="margin-top: 2rem; margin-bottom: 0.75rem; color: var(--text-bright);">Claude Desktop Configuration</h3>
+        <p style="color: var(--text-dim); margin-bottom: 0.75rem;">
+          Add RustyGraph to your <code>claude_desktop_config.json</code> (located at <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows or <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS):
+        </p>
+        <div class="code-window">
+          <div class="code-header">
+            <span class="code-title">claude_desktop_config.json</span>
+            <button class="btn-copy" onclick="navigator.clipboard.writeText(this.closest('.code-window').querySelector('code').innerText)">Copy</button>
+          </div>
+          <pre><code>{
+  <span class="tok-key">"mcpServers"</span>: {
+    <span class="tok-key">"rustygraph"</span>: {
+      <span class="tok-key">"command"</span>: <span class="tok-str">"rustygraph-mcp"</span>,
+      <span class="tok-key">"args"</span>: [<span class="tok-str">"--data"</span>, <span class="tok-str">"/path/to/rustygraph_data"</span>]
+    }
+  }
+}</code></pre>
+        </div>
+
+        <h3 style="margin-top: 2rem; margin-bottom: 0.75rem; color: var(--text-bright);">Exposed MCP Tools</h3>
+        <div class="table-container">
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>Tool Name</th>
+                <th>Arguments</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>cypher_query</code></td>
+                <td><code>query: string, params?: object</code></td>
+                <td>Execute read/write openCypher queries with parameters, variable-length paths (<code>*1..3</code>), atomic <code>MERGE</code> upserts, and aggregations. Formatted as ASCII table.</td>
+              </tr>
+              <tr>
+                <td><code>vector_search</code></td>
+                <td><code>index: string, vector: float[], k?: number</code></td>
+                <td>Top-k nearest neighbor vector similarity search using Cosine, Euclidean, or Dot Product metric with SIMD loop-unrolled calculations.</td>
+              </tr>
+              <tr>
+                <td><code>graph_rag</code></td>
+                <td><code>index: string, vector: float[], k?: number, hops?: number, direction?: string</code></td>
+                <td>Hybrid GraphRAG retrieval combining semantic vector nearest-neighbor search with relational graph traversal expansion.</td>
+              </tr>
+              <tr>
+                <td><code>fulltext_search</code></td>
+                <td><code>index: string, query: string, top_k?: number, prefix?: boolean</code></td>
+                <td>Query inverted BM25 / TF-IDF index for keywords, document matches, and relevance scores.</td>
+              </tr>
+              <tr>
+                <td><code>get_schema</code></td>
+                <td><em>(none)</em></td>
+                <td>Inspect complete graph schema: node counts, relationship types, label distributions, vector/fulltext indices, density, and average degree.</td>
+              </tr>
+              <tr>
+                <td><code>run_algorithm</code></td>
+                <td><code>algorithm: string, params?: object</code></td>
+                <td>Run graph algorithms: <code>pagerank</code>, <code>personalized_pagerank</code>, <code>betweenness_centrality</code>, <code>shortest_path</code> (BFS / Dijkstra), <code>wcc</code>, <code>scc</code>, <code>degree_centrality</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top: 2rem; margin-bottom: 0.75rem; color: var(--text-bright);">Exposed MCP Resources</h3>
+        <div class="table-container">
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>Resource URI</th>
+                <th>MIME Type</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>rustygraph://schema</code></td>
+                <td><code>application/json</code></td>
+                <td>Graph schema metadata, label distributions, relationship type counts, and active index definitions.</td>
+              </tr>
+              <tr>
+                <td><code>rustygraph://stats</code></td>
+                <td><code>application/json</code></td>
+                <td>Live database health metrics: total nodes, edges, graph density, average degree, and isolated node counts.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
 

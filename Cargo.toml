@@ -23,3 +23,7 @@ path = "src/bin/server.rs"
 [[bin]]
 name = "rustygraph-cli"
 path = "src/bin/cli.rs"
+
+[[bin]]
+name = "rustygraph-mcp"
+path = "src/bin/mcp.rs"

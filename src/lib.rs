@@ -64,6 +64,7 @@ pub mod ffi;
 pub mod graph;
 pub mod id;
 pub mod index;
+pub mod mcp;
 pub mod model;
 pub mod query;
 pub use query::cypher;
@@ -99,6 +100,7 @@ pub mod prelude {
     pub use crate::stats::GraphStats;
     pub use crate::transaction::{Transaction, TransactionManager, TransactionStatus};
     pub use crate::traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
+    pub use crate::mcp::{McpBackend, McpServer};
     pub use crate::value::PropertyValue;
     pub use crate::vector::{VectorIndex, VectorSearchResult, VectorSimilarity};
     pub use crate::wal::{crc32, FsyncPolicy, WalManager, WalOp, WalRecord};

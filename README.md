@@ -62,6 +62,11 @@ An ultra-fast, in-memory labeled property graph database library written in Rust
 - **Production Dockerization**:
   - Multi-stage minimal production `Dockerfile` with unprivileged user security and built-in healthchecks.
   - Zero-configuration `docker-compose.yml` supporting standalone and 3-node distributed clusters.
+- **Model Context Protocol (MCP) Server**:
+  - Native JSON-RPC 2.0 stdio server (`rustygraph-mcp`) connecting RustyGraph directly to Anthropic Claude Desktop, Cursor, Antigravity, and autonomous AI agents.
+  - Standard MCP tools: `cypher_query` (with $params, MERGE, variable-length paths), `vector_search`, `graph_rag`, `fulltext_search`, `get_schema`, and `run_algorithm` (PageRank, Personalized PageRank, Betweenness Centrality, Shortest Path, WCC, SCC, Degree Centrality).
+  - Standard MCP resources: `rustygraph://schema` and `rustygraph://stats`.
+  - Supports embedded in-memory graphs, persistent local WAL databases (`--data <DIR>`), and remote `rustygraph-server` clusters (`--url <URL>`).
 - **Concurrency & Persistence**:
   - `ConcurrentGraph` with `Arc<RwLock>` for multi-threaded reads/writes.
   - Full JSON export and import (`to_json` / `from_json`).
@@ -506,6 +511,60 @@ curl http://localhost:8081/cluster/status
 
 ---
 
+## 🤖 Model Context Protocol (MCP) Server
+
+RustyGraph includes a native, production-grade [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server (`rustygraph-mcp`) compliant with the standard JSON-RPC 2.0 stdio transport. It enables AI assistants (Claude Desktop, Cursor, Antigravity, and autonomous LLM agents) to directly read, query, traverse, and execute graph algorithms over your graph database.
+
+### 1. Launch Modes
+
+```bash
+# Mode A: Embedded in-memory graph
+rustygraph-mcp
+
+# Mode B: Persistent database backed by WAL log and snapshots
+rustygraph-mcp --data ./rustygraph_data
+
+# Mode C: Remote connection to a running rustygraph-server daemon
+rustygraph-mcp --url http://127.0.0.1:8000
+# Or shorthand:
+rustygraph-mcp --remote
+```
+
+### 2. Claude Desktop Integration
+
+Add `rustygraph` to your `claude_desktop_config.json` (`%APPDATA%\Claude\claude_desktop_config.json` on Windows or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "rustygraph": {
+      "command": "rustygraph-mcp",
+      "args": ["--data", "C:/path/to/rustygraph_data"]
+    }
+  }
+}
+```
+
+### 3. Exposed MCP Tools
+
+| Tool | Parameters | Description |
+| :--- | :--- | :--- |
+| `cypher_query` | `query: string`, `params?: object` | Execute read/write openCypher queries with parameters, variable-length paths (`*1..3`), `MERGE`, and list aggregations. Returns ASCII tabular results. |
+| `vector_search` | `index: string`, `vector: number[]`, `k?: number` | Perform top-$k$ nearest neighbor search using Cosine, Euclidean, or Dot Product similarity. |
+| `graph_rag` | `index: string`, `vector: number[]`, `k?: number`, `hops?: number`, `direction?: string` | Hybrid GraphRAG combining semantic vector retrieval with topological relational neighborhood expansion. |
+| `fulltext_search` | `index: string`, `query: string`, `top_k?: number`, `prefix?: boolean` | Query inverted BM25 / TF-IDF index for keywords, document matches, and relevance scores. |
+| `get_schema` | *(none)* | Inspect complete graph schema: node labels, relationship types, edge counts, vector/fulltext indices, density, and average degree. |
+| `run_algorithm` | `algorithm: string`, `params?: object` | Run graph algorithms: `pagerank`, `personalized_pagerank`, `betweenness_centrality`, `shortest_path`, `wcc`, `scc`, `degree_centrality`. |
+
+### 4. Exposed MCP Resources
+
+| URI | MIME Type | Description |
+| :--- | :--- | :--- |
+| `rustygraph://schema` | `application/json` | Graph schema metadata (label distributions, relationship types, indexed fields). |
+| `rustygraph://stats` | `application/json` | Live database telemetry (node count, edge count, density, average degree, isolated nodes). |
+
+---
+
 ## 🗺️ Roadmap & Phase Status
 
 | Phase | Description | Status |
@@ -523,6 +582,7 @@ curl http://localhost:8081/cluster/status
 | **Phase 10** | Standalone NoSQL Distributed Server & CLI (WAL Durability, TCP Clustering, REST API, REPL) | ✅ Complete |
 | **Phase 11** | Full Cypher Mutations & ACID Transactions (CREATE/SET/DELETE, Aggregations, Isolation, Timeout Reaping) | ✅ Complete |
 | **Phase 12** | Supernode Skew Mitigation, Graph-as-NoSQL Multi-Model Fusion & Production Dockerization | ✅ Complete |
+| **Phase 13** | Model Context Protocol (MCP) Server for AI Agents (JSON-RPC stdio, Cypher, GDS, Vector GraphRAG) | ✅ Complete |
 
 ---
 
