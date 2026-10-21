@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "💬 GitHub Discussions & Questions"
+    url: "https://github.com/maheshwarLigade/rustygraph/discussions"
+    about: "Ask questions, share ideas, or get help with RustyGraph."
+  - name: "📖 Official Documentation & Live Playground"
+    url: "https://maheshwarligade.github.io/rustygraph/"
+    about: "Read the full architecture guide, openCypher reference, and test queries in the live playground."
