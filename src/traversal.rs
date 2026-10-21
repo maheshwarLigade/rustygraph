@@ -115,6 +115,16 @@ impl Path {
     }
 }
 
+impl std::fmt::Display for Path {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({})", self.start)?;
+        for segment in &self.segments {
+            write!(f, "-[{}]->({})", segment.edge_id, segment.target_node)?;
+        }
+        Ok(())
+    }
+}
+
 /// A fluent builder for configuring and executing graph traversals.
 pub struct Traverser<'a> {
     graph: &'a Graph,

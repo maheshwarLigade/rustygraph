@@ -26,8 +26,13 @@ An ultra-fast, in-memory labeled property graph database library written in Rust
   - **Community Detection**: Weakly Connected Components (WCC via Disjoint-Set / Union-Find) and Strongly Connected Components (SCC via Tarjan's algorithm).
   - **Topological Analysis**: DAG validation & Kahn's Topological Sort.
   - **Similarity**: Jaccard similarity coefficient and common neighbor identification.
-- **Declarative Pattern Matching (Cypher-style DSL)**:
+- **Declarative Pattern Matching & Cypher Query Engine**:
+  - Native Cypher query string parser, lexer, AST evaluation (`graph.cypher(...)`), and tabular ASCII result printer.
   - Strongly typed query builder supporting multi-hop graph patterns, `WHERE` predicates, `ORDER BY`, pagination (`SKIP`/`LIMIT`), and arbitrary projections.
+- **Vector Database & GraphRAG**:
+  - In-memory vector indexing with multiple similarity metrics: **Cosine Similarity**, **Euclidean Distance**, and **Dot Product**.
+  - Dynamic dimension validation, top-$k$ nearest neighbor search, and automatic index synchronization upon node insertions, property updates, and deletions.
+  - Native **GraphRAG** hybrid search (`vector_search_and_traverse`) combining semantic vector retrieval with relational knowledge graph expansion.
 - **Concurrency & Persistence**:
   - `ConcurrentGraph` with `Arc<RwLock>` for multi-threaded reads/writes.
   - Full JSON export and import (`to_json` / `from_json`).
@@ -122,9 +127,77 @@ fn main() -> Result<()> {
 
 ---
 
+## 🔍 Native Cypher Query Support
+
+`rusty_graph` includes a built-in Cypher query parser and execution engine:
+
+```rust
+use rusty_graph::prelude::*;
+
+fn main() -> Result<()> {
+    let mut graph = Graph::new();
+    // ... populate graph ...
+
+    let result = graph.cypher(
+        "MATCH (p:Person)-[:KNOWS]->(f:Person) \
+         WHERE f.age > 25 \
+         RETURN p.name, f.name, f.age \
+         ORDER BY f.age DESC \
+         LIMIT 10"
+    )?;
+
+    println!("{}", result.to_ascii_table());
+    Ok(())
+}
+```
+
+---
+
+## 🧠 Vector Database & GraphRAG Hybrid Search
+
+`rusty_graph` provides native vector indexing for embedding-based nearest neighbor search and relational GraphRAG:
+
+```rust
+use rusty_graph::prelude::*;
+use rusty_graph::vector::VectorSimilarity;
+
+fn main() -> Result<()> {
+    let mut graph = Graph::new();
+
+    // 1. Create a Vector Index on 'Paper' embeddings using Cosine similarity
+    graph.create_vector_index(
+        "paper_embeddings",
+        "Paper",
+        "embedding",
+        4, // 4-dimensional vectors
+        VectorSimilarity::Cosine,
+    )?;
+
+    // 2. Hybrid GraphRAG: Find top 2 nearest papers and expand 2 hops into citations/topics
+    let query_vector = vec![0.75, 0.80, 0.85, 0.30];
+    let rag_results = graph.vector_search_and_traverse(
+        "paper_embeddings",
+        &query_vector,
+        2, // top 2 seed documents
+        2, // expand 2 hops
+    )?;
+
+    for (hit, paths) in rag_results {
+        println!("Seed Node {} with similarity score: {:.4}", hit.node_id, hit.score);
+        for path in paths {
+            println!("  Found context path: {}", path);
+        }
+    }
+
+    Ok(())
+}
+```
+
+---
+
 ## 🛠️ Running Tests and Examples
 
-Run all unit and doc tests:
+Run all unit, integration, and doc tests:
 ```bash
 cargo test
 ```
@@ -132,6 +205,11 @@ cargo test
 Run the complete social network demonstration:
 ```bash
 cargo run --example neo4j_social_network
+```
+
+Run the GraphRAG hybrid vector search demonstration:
+```bash
+cargo run --example vector_graph_rag
 ```
 
 ---
@@ -145,7 +223,9 @@ cargo run --example neo4j_social_network
 | **Phase 3** | Traversal Engine (`Traverser`, `Path`, BFS/DFS, Cycle Management) | ✅ Complete |
 | **Phase 4** | Graph Data Science (Dijkstra, A*, BFS Shortest Path, PageRank, WCC, SCC, TopoSort, Jaccard) | ✅ Complete |
 | **Phase 5** | Declarative Pattern Matching Query DSL (`QueryBuilder`, Filters, Order, Project) | ✅ Complete |
+| **Phase 5+** | Native Cypher Query Engine (Lexer, Parser, AST Evaluator, Tabular ASCII Formatter) | ✅ Complete |
 | **Phase 6** | Persistence (JSON Export/Import) & Concurrency (`ConcurrentGraph`) | ✅ Complete |
+| **Phase 7** | Vector Database & GraphRAG (Vector Indexing, Cosine/Euclidean/Dot, Hybrid Search) | ✅ Complete |
 
 ---
 

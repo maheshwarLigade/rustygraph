@@ -5,6 +5,7 @@ use crate::model::{Direction, Node, Relationship};
 use crate::stats::GraphStats;
 use crate::storage::SlotArena;
 use crate::value::PropertyValue;
+use crate::vector::{VectorIndex, VectorSearchResult, VectorSimilarity};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
@@ -18,7 +19,7 @@ struct NodeRecord {
 }
 
 /// The core in-memory property graph engine, providing fast O(1) mutations,
-/// adjacency lookups, secondary indices, and unique constraint enforcement.
+/// adjacency lookups, secondary indices, unique constraints, and vector search.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Graph {
     nodes: SlotArena<NodeRecord>,
@@ -26,6 +27,7 @@ pub struct Graph {
     label_index: HashMap<String, HashSet<NodeId>>,
     type_index: HashMap<String, HashSet<RelId>>,
     index_manager: IndexManager,
+    vector_indices: HashMap<String, VectorIndex>,
 }
 
 impl Default for Graph {
@@ -43,6 +45,7 @@ impl Graph {
             label_index: HashMap::new(),
             type_index: HashMap::new(),
             index_manager: IndexManager::new(),
+            vector_indices: HashMap::new(),
         }
     }
 
@@ -54,6 +57,7 @@ impl Graph {
             label_index: HashMap::new(),
             type_index: HashMap::new(),
             index_manager: IndexManager::new(),
+            vector_indices: HashMap::new(),
         }
     }
 
@@ -72,7 +76,7 @@ impl Graph {
     }
 
     /// Create a node with customized initialization (labels, properties),
-    /// verifying all unique constraints and updating property indices.
+    /// verifying all unique constraints and updating property & vector indices.
     pub fn create_node_with<F>(&mut self, init: F) -> Result<NodeId>
     where
         F: FnOnce(&mut Node),
@@ -115,6 +119,17 @@ impl Graph {
             for (key, val) in rec.node.properties.iter() {
                 self.index_manager
                     .index_property(label, key, val.clone(), node_id);
+            }
+        }
+
+        // Update vector indices
+        for v_idx in self.vector_indices.values_mut() {
+            if rec.node.has_label(&v_idx.label) {
+                if let Some(val) = rec.node.prop(&v_idx.property_key) {
+                    if let Some(vec) = val.as_vector() {
+                        let _ = v_idx.insert(node_id, vec);
+                    }
+                }
             }
         }
 
@@ -182,6 +197,17 @@ impl Graph {
                 self.index_manager
                     .index_property(&label_str, key, val.clone(), id);
             }
+
+            // Update matching vector indices
+            for v_idx in self.vector_indices.values_mut() {
+                if v_idx.label == label_str {
+                    if let Some(val) = rec.node.prop(&v_idx.property_key) {
+                        if let Some(vec) = val.as_vector() {
+                            let _ = v_idx.insert(id, vec);
+                        }
+                    }
+                }
+            }
         }
 
         Ok(inserted)
@@ -208,11 +234,18 @@ impl Graph {
                 self.index_manager
                     .deindex_property(label, key, val, id);
             }
+
+            // Remove from vector indices for this label
+            for v_idx in self.vector_indices.values_mut() {
+                if v_idx.label == label {
+                    v_idx.remove(id);
+                }
+            }
         }
         Ok(removed)
     }
 
-    /// Set a property on a node, validating unique constraints and updating property indices.
+    /// Set a property on a node, validating unique constraints and updating property & vector indices.
     pub fn set_node_property<K: Into<String>, V: Into<PropertyValue>>(
         &mut self,
         id: NodeId,
@@ -248,6 +281,18 @@ impl Graph {
                 .index_property(label, &key_str, val_prop.clone(), id);
         }
 
+        // Update vector indices
+        let vector_data = val_prop.as_vector();
+        for v_idx in self.vector_indices.values_mut() {
+            if rec.node.has_label(&v_idx.label) && v_idx.property_key == key_str {
+                if let Some(vec) = &vector_data {
+                    let _ = v_idx.insert(id, vec.clone());
+                } else {
+                    v_idx.remove(id);
+                }
+            }
+        }
+
         Ok(old_val)
     }
 
@@ -271,11 +316,18 @@ impl Graph {
             }
         }
 
+        // Remove from vector indices
+        for v_idx in self.vector_indices.values_mut() {
+            if v_idx.property_key == key {
+                v_idx.remove(id);
+            }
+        }
+
         Ok(old_val)
     }
 
     /// Delete a node and all incoming/outgoing relationships connected to it,
-    /// cleaning up all secondary indices and constraints.
+    /// cleaning up all secondary indices, constraints, and vector indices.
     pub fn delete_node(&mut self, id: NodeId) -> Result<Node> {
         let rec = self
             .nodes
@@ -295,6 +347,11 @@ impl Graph {
                 self.index_manager
                     .deindex_property(label, key, val, id);
             }
+        }
+
+        // Remove from vector indices
+        for v_idx in self.vector_indices.values_mut() {
+            v_idx.remove(id);
         }
 
         // Cascade delete all outgoing relationships
@@ -690,6 +747,97 @@ impl Graph {
     }
 
     // =========================================================================
+    // Vector Indexing & Vector Search (Neo4j GenAI / Vector DB)
+    // =========================================================================
+
+    /// Create a vector index on nodes with `label` storing dense embedding vectors on `property_key`.
+    /// Automatically indexes existing nodes that carry this label and vector property.
+    pub fn create_vector_index<S1: Into<String>, S2: Into<String>, S3: Into<String>>(
+        &mut self,
+        name: S1,
+        label: S2,
+        property_key: S3,
+        dimensions: usize,
+        metric: VectorSimilarity,
+    ) -> Result<bool> {
+        let name_str = name.into();
+        let label_str = label.into();
+        let prop_str = property_key.into();
+
+        if self.vector_indices.contains_key(&name_str) {
+            return Ok(false);
+        }
+
+        let mut v_idx = VectorIndex::new(&name_str, &label_str, &prop_str, dimensions, metric);
+
+        // Populate from existing nodes
+        let node_ids = self.nodes_with_label(&label_str);
+        for id in node_ids {
+            if let Some(val) = self.get_node_property(id, &prop_str) {
+                if let Some(vec) = val.as_vector() {
+                    v_idx.insert(id, vec)?;
+                }
+            }
+        }
+
+        self.vector_indices.insert(name_str, v_idx);
+        Ok(true)
+    }
+
+    /// Drop a vector index by name.
+    pub fn drop_vector_index(&mut self, name: &str) -> bool {
+        self.vector_indices.remove(name).is_some()
+    }
+
+    /// Returns true if a vector index exists with the given name.
+    pub fn has_vector_index(&self, name: &str) -> bool {
+        self.vector_indices.contains_key(name)
+    }
+
+    /// Get a reference to a VectorIndex by name.
+    pub fn get_vector_index(&self, name: &str) -> Option<&VectorIndex> {
+        self.vector_indices.get(name)
+    }
+
+    /// Search the vector index for the top `k` nearest neighbors matching `query_vector`.
+    pub fn query_vector_index(
+        &self,
+        name: &str,
+        k: usize,
+        query_vector: &[f32],
+    ) -> Result<Vec<VectorSearchResult>> {
+        let idx = self.vector_indices.get(name).ok_or_else(|| {
+            GraphError::InvalidOperation(format!("Vector index '{name}' not found"))
+        })?;
+
+        idx.search(query_vector, k)
+    }
+
+    /// Perform GraphRAG: Query the vector index for top `k` most semantically similar entry nodes,
+    /// then traverse the surrounding graph structure from each matched node up to `traverse_depth`.
+    pub fn vector_search_and_traverse(
+        &self,
+        index_name: &str,
+        query_vector: &[f32],
+        k: usize,
+        traverse_depth: usize,
+    ) -> Result<Vec<(VectorSearchResult, Vec<crate::traversal::Path>)>> {
+        let nearest = self.query_vector_index(index_name, k, query_vector)?;
+        let mut results = Vec::with_capacity(nearest.len());
+
+        for item in nearest {
+            let paths = self
+                .traverse(item.node_id)
+                .outgoing()
+                .max_depth(traverse_depth)
+                .paths();
+            results.push((item, paths));
+        }
+
+        Ok(results)
+    }
+
+    // =========================================================================
     // Statistics & Inspection
     // =========================================================================
 
@@ -747,7 +895,7 @@ impl Graph {
     }
 
     // =========================================================================
-    // Fluent Traversal
+    // Fluent Traversal & Query
     // =========================================================================
 
     /// Create a fluent traversal starting from the given node.
@@ -772,6 +920,7 @@ impl Graph {
         self.label_index.clear();
         self.type_index.clear();
         self.index_manager.clear();
+        self.vector_indices.clear();
     }
 
     /// Returns true if the graph has neither nodes nor relationships.

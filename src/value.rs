@@ -79,6 +79,24 @@ impl PropertyValue {
         }
     }
 
+    /// Attempts to extract a vector of f32 numbers from this value (converts from List of numeric values).
+    pub fn as_vector(&self) -> Option<Vec<f32>> {
+        match self {
+            Self::List(l) => {
+                let mut vec = Vec::with_capacity(l.len());
+                for item in l {
+                    if let Some(f) = item.as_f64() {
+                        vec.push(f as f32);
+                    } else {
+                        return None;
+                    }
+                }
+                Some(vec)
+            }
+            _ => None,
+        }
+    }
+
     /// Attempts to extract a map of string keys to PropertyValues.
     pub fn as_map(&self) -> Option<&BTreeMap<String, PropertyValue>> {
         match self {

@@ -68,6 +68,7 @@ pub mod stats;
 pub mod storage;
 pub mod traversal;
 pub mod value;
+pub mod vector;
 
 /// Convenient re-exports of common types.
 pub mod prelude {
@@ -84,6 +85,7 @@ pub mod prelude {
     pub use crate::stats::GraphStats;
     pub use crate::traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
     pub use crate::value::PropertyValue;
+    pub use crate::vector::{VectorIndex, VectorSearchResult, VectorSimilarity};
 }
 
 pub use algo::{
@@ -103,6 +105,7 @@ pub use serde_export::GraphDump;
 pub use stats::GraphStats;
 pub use traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
 pub use value::PropertyValue;
+pub use vector::{VectorIndex, VectorSearchResult, VectorSimilarity};
 
 #[cfg(test)]
 mod tests {
