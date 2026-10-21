@@ -31,7 +31,7 @@
 //!         r.set_prop("closeness", 0.95);
 //!     })?;
 //!
-//!     // Declarative Cypher-style pattern querying
+//!     // 1. Declarative Cypher-style query builder
 //!     let matches: Vec<(String, String)> = graph.query()
 //!         .match_node("p").with_label("Person")
 //!         .outgoing("KNOWS", "friend").with_label("Person")
@@ -42,8 +42,13 @@
 //!                 ctx.prop("friend", "name").unwrap().as_str().unwrap().to_string(),
 //!             )
 //!         });
-//!
 //!     assert_eq!(matches, vec![("Alice".to_string(), "Bob".to_string())]);
+//!
+//!     // 2. Direct Cypher Query string execution!
+//!     let cypher_res = graph.cypher(
+//!         "MATCH (p:Person)-[:KNOWS]->(f:Person) WHERE f.age < 30 RETURN p.name, f.name"
+//!     )?;
+//!     assert_eq!(cypher_res.len(), 1);
 //!
 //!     Ok(())
 //! }
@@ -51,6 +56,7 @@
 
 pub mod algo;
 pub mod concurrent;
+pub mod cypher;
 pub mod error;
 pub mod graph;
 pub mod id;
@@ -67,6 +73,7 @@ pub mod value;
 pub mod prelude {
     pub use crate::algo;
     pub use crate::concurrent::ConcurrentGraph;
+    pub use crate::cypher::CypherResult;
     pub use crate::error::{GraphError, Result};
     pub use crate::graph::Graph;
     pub use crate::id::{NodeId, RelId};
@@ -85,6 +92,7 @@ pub use algo::{
     weakly_connected_components,
 };
 pub use concurrent::ConcurrentGraph;
+pub use cypher::CypherResult;
 pub use error::{GraphError, Result};
 pub use graph::Graph;
 pub use id::{NodeId, RelId};
@@ -599,7 +607,6 @@ mod tests {
 
         let cg = Arc::new(ConcurrentGraph::new());
 
-        // Spawn 4 writer threads
         let mut handles = vec![];
         for i in 0..4 {
             let g = Arc::clone(&cg);
@@ -642,12 +649,10 @@ mod tests {
             r.set_prop("duration_mins", 135);
         })?;
 
-        // Export to JSON string
         let json_data = original.to_json()?;
         assert!(json_data.contains("Kyoto"));
         assert!(json_data.contains("SHINKANSEN"));
 
-        // Import from JSON
         let imported = Graph::from_json(&json_data)?;
         assert_eq!(imported.node_count(), 2);
         assert_eq!(imported.edge_count(), 1);
@@ -660,6 +665,60 @@ mod tests {
 
         let imported_edge = imported.get_edge(edges[0]).unwrap();
         assert_eq!(imported_edge.prop("duration_mins"), Some(&PropertyValue::Int(135)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_cypher_query_language_execution() -> Result<()> {
+        let mut graph = Graph::new();
+
+        let alice = graph.create_node_with(|n| {
+            n.add_label("Person");
+            n.set_prop("name", "Alice");
+            n.set_prop("age", 30);
+        })?;
+
+        let bob = graph.create_node_with(|n| {
+            n.add_label("Person");
+            n.set_prop("name", "Bob");
+            n.set_prop("age", 24);
+        })?;
+
+        let acme = graph.create_node_with(|n| {
+            n.add_label("Company");
+            n.set_prop("name", "Acme Corp");
+        })?;
+
+        graph.create_edge_with(alice, bob, "KNOWS", |r| { r.set_prop("since", 2020); })?;
+        graph.create_edge(bob, acme, "WORKS_AT")?;
+
+        // 1. Simple Node Match
+        let res1 = graph.cypher("MATCH (p:Person) RETURN p.name")?;
+        assert_eq!(res1.columns, vec!["p.name"]);
+        assert_eq!(res1.rows.len(), 2);
+
+        // 2. Pattern Match with WHERE filter
+        let res2 = graph.cypher(
+            "MATCH (p:Person)-[:KNOWS]->(f:Person) WHERE f.age < 30 RETURN p.name, f.name"
+        )?;
+        assert_eq!(res2.columns, vec!["p.name", "f.name"]);
+        assert_eq!(res2.rows.len(), 1);
+        assert_eq!(res2.rows[0], vec![PropertyValue::from("Alice"), PropertyValue::from("Bob")]);
+
+        // 3. Multi-hop Pattern Match
+        let res3 = graph.cypher(
+            "MATCH (p:Person)-[:KNOWS]->(f:Person)-[:WORKS_AT]->(c:Company) RETURN p.name, c.name"
+        )?;
+        assert_eq!(res3.rows.len(), 1);
+        assert_eq!(res3.rows[0], vec![PropertyValue::from("Alice"), PropertyValue::from("Acme Corp")]);
+
+        // 4. Formatted ASCII table display test
+        let formatted = format!("{res2}");
+        assert!(formatted.contains("p.name"));
+        assert!(formatted.contains("f.name"));
+        assert!(formatted.contains("Alice"));
+        assert!(formatted.contains("Bob"));
 
         Ok(())
     }

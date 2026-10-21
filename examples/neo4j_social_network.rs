@@ -115,6 +115,13 @@ fn main() -> Result<()> {
         println!("    -> {user} works at {company}");
     }
 
+    // 5b. Direct Cypher Query String execution!
+    println!("\n[5b] Direct Cypher Query String execution:");
+    let cypher_query = "MATCH (u:User)-[:WORKS_AT]->(c:Company) WHERE u.age > 28 RETURN u.name, u.age, c.name";
+    println!("    Query: {cypher_query}");
+    let cypher_result = graph.cypher(cypher_query)?;
+    println!("{cypher_result}");
+
     // 6. Graph Data Science: PageRank Centrality
     println!("\n[6] Running PageRank Centrality (iterative power iteration)...");
     let pr = algo::pagerank(&graph, 0.85, 50, 1e-6);
