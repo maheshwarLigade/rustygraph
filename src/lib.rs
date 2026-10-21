@@ -88,7 +88,7 @@ pub mod prelude {
     pub use crate::error::{GraphError, Result};
     pub use crate::graph::Graph;
     pub use crate::id::{NodeId, RelId};
-    pub use crate::index::{IndexKey, IndexManager, PropertyIndex};
+    pub use crate::index::{tokenize, FulltextIndex, FulltextSearchResult, IndexKey, IndexManager, PropertyIndex};
     pub use crate::model::{Direction, Node, Properties, Relationship};
     pub use crate::query::{QueryBuilder, QueryContext};
     pub use crate::db::{DatabaseConfig, DatabaseStats, StandaloneDatabase};
@@ -116,7 +116,7 @@ pub use distributed::{ClusterPeer, ClusterStatus, DistributedClusterNode};
 pub use error::{GraphError, Result};
 pub use graph::Graph;
 pub use id::{NodeId, RelId};
-pub use index::{IndexKey, IndexManager, PropertyIndex};
+pub use index::{tokenize, FulltextIndex, FulltextSearchResult, IndexKey, IndexManager, PropertyIndex};
 pub use model::{Direction, Node, Properties, Relationship};
 pub use query::{QueryBuilder, QueryContext};
 pub use serde_export::GraphDump;

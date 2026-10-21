@@ -5,6 +5,8 @@ use std::collections::HashMap;
 #[derive(Debug, Deserialize)]
 pub struct CypherRequest {
     pub query: String,
+    #[serde(default)]
+    pub params: HashMap<String, PropertyValue>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +45,27 @@ pub struct VectorSearchRequest {
     pub index: String,
     pub k: usize,
     pub vector: Vec<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateFulltextIndexRequest {
+    pub name: String,
+    pub label: String,
+    pub property_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FulltextSearchRequest {
+    pub index: String,
+    pub query: String,
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+    #[serde(default)]
+    pub prefix: bool,
+}
+
+fn default_top_k() -> usize {
+    10
 }
 
 #[derive(Debug, Deserialize)]

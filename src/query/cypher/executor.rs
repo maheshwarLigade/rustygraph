@@ -12,8 +12,12 @@ struct MatchBinding {
     edges: HashMap<String, crate::id::RelId>,
 }
 
-/// Executes a parsed Cypher AST against a mutable Graph instance.
-pub fn execute_ast(graph: &mut Graph, ast: AstQuery) -> Result<CypherResult> {
+/// Executes a parsed Cypher AST against a mutable Graph instance with optional parameters.
+pub fn execute_ast_with_params(
+    graph: &mut Graph,
+    ast: AstQuery,
+    params: &HashMap<String, PropertyValue>,
+) -> Result<CypherResult> {
     // Keep track of aliases created or matched to node IDs
     let mut alias_node_map: HashMap<String, NodeId> = HashMap::new();
 
@@ -21,12 +25,17 @@ pub fn execute_ast(graph: &mut Graph, ast: AstQuery) -> Result<CypherResult> {
     for (nodes, rels) in &ast.creates {
         let mut pattern_node_ids = Vec::new();
         for n in nodes {
+            let mut resolved_props = Vec::with_capacity(n.props.len());
+            for (k, v) in &n.props {
+                resolved_props.push((k.clone(), v.resolve(params)?));
+            }
+
             let node_id = graph.create_node_with(|node| {
                 if let Some(lbl) = &n.label {
                     node.add_label(lbl);
                 }
-                for (k, v) in &n.props {
-                    node.set_prop(k, v.clone());
+                for (k, val) in resolved_props {
+                    node.set_prop(k, val);
                 }
             })?;
             if !n.alias.is_empty() {
@@ -39,9 +48,14 @@ pub fn execute_ast(graph: &mut Graph, ast: AstQuery) -> Result<CypherResult> {
             let src = pattern_node_ids[i];
             let dst = pattern_node_ids[i + 1];
             let rel_type = rel.rel_type.as_deref().unwrap_or("RELATED");
+            let mut resolved_rel_props = Vec::with_capacity(rel.props.len());
+            for (k, v) in &rel.props {
+                resolved_rel_props.push((k.clone(), v.resolve(params)?));
+            }
+
             graph.create_edge_with(src, dst, rel_type, |edge| {
-                for (k, v) in &rel.props {
-                    edge.set_prop(k, v.clone());
+                for (k, val) in resolved_rel_props {
+                    edge.set_prop(k, val);
                 }
             })?;
         }
@@ -106,7 +120,8 @@ pub fn execute_ast(graph: &mut Graph, ast: AstQuery) -> Result<CypherResult> {
             builder = builder.with_label(lbl);
         }
         for (k, v) in &first_node.props {
-            builder = builder.with_prop(k, v.clone());
+            let val = v.resolve(params)?;
+            builder = builder.with_prop(k, val);
         }
     }
 
@@ -122,16 +137,17 @@ pub fn execute_ast(graph: &mut Graph, ast: AstQuery) -> Result<CypherResult> {
             builder = builder.with_label(lbl);
         }
         for (k, v) in &target_node.props {
-            builder = builder.with_prop(k, v.clone());
+            let val = v.resolve(params)?;
+            builder = builder.with_prop(k, val);
         }
     }
 
-    // Apply WHERE clauses
+    // Apply WHERE clauses with resolved parameters
     for w in ast.where_clauses {
         let alias = w.alias.clone();
         let prop = w.prop.clone();
         let op = w.op.clone();
-        let expected_val = w.val.clone();
+        let expected_val = w.val.resolve(params)?;
 
         builder = builder.filter(move |ctx| {
             if let Some(actual) = ctx.prop(&alias, &prop) {
@@ -158,12 +174,13 @@ pub fn execute_ast(graph: &mut Graph, ast: AstQuery) -> Result<CypherResult> {
         })
         .collect();
 
-    // 3. Process SET clauses on matched entities
+    // 3. Process SET clauses on matched entities with resolved parameters
     if !ast.set_clauses.is_empty() {
         for b in &bindings {
             for s in &ast.set_clauses {
                 if let Some(&node_id) = b.nodes.get(&s.alias) {
-                    let _ = graph.set_node_property(node_id, &s.prop, s.val.clone());
+                    let val = s.val.resolve(params)?;
+                    let _ = graph.set_node_property(node_id, &s.prop, val);
                 }
             }
         }
@@ -200,210 +217,204 @@ pub fn execute_ast(graph: &mut Graph, ast: AstQuery) -> Result<CypherResult> {
     if ast.returns.is_empty() {
         let columns = vec!["result".to_string()];
         let rows = vec![vec![PropertyValue::String(format!(
-            "Updated {} matched entities",
+            "Matched and modified {} entities",
             bindings.len()
         ))]];
         return Ok(CypherResult::new(columns, rows));
     }
 
-    // Helper closures for reading properties / nodes post-mutation
-    let get_prop = |b: &MatchBinding, alias: &str, prop: &str| -> Option<PropertyValue> {
-        if let Some(&nid) = b.nodes.get(alias) {
-            graph.get_node(nid).and_then(|n| n.prop_path(prop)).cloned()
-        } else if let Some(&eid) = b.edges.get(alias) {
-            graph.get_edge(eid).and_then(|e| e.prop_path(prop)).cloned()
-        } else {
-            None
-        }
-    };
-
-    let get_node_val = |b: &MatchBinding, alias: &str| -> PropertyValue {
-        if let Some(&nid) = b.nodes.get(alias) {
-            if let Some(n) = graph.get_node(nid) {
-                let mut map = BTreeMap::new();
-                map.insert("id".to_string(), PropertyValue::Int(n.id.raw() as i64));
-                for (k, v) in n.properties.iter() {
-                    map.insert(k.clone(), v.clone());
-                }
-                PropertyValue::Map(map)
-            } else {
-                PropertyValue::Null
-            }
-        } else {
-            PropertyValue::Null
-        }
-    };
-
-    // 5. Check if query contains aggregation functions
-    let has_aggregations = ast.returns.iter().any(|r| {
-        matches!(
-            r.kind,
-            ReturnKind::CountStar
-                | ReturnKind::Count(_, _)
-                | ReturnKind::Sum(_, _)
-                | ReturnKind::Avg(_, _)
-                | ReturnKind::Min(_, _)
-                | ReturnKind::Max(_, _)
-        )
+    // 5. Evaluate RETURN columns and projections
+    let columns: Vec<String> = ast.returns.iter().map(|r| r.output_name.clone()).collect();
+    let has_aggregations = ast.returns.iter().any(|r| match r.kind {
+        ReturnKind::CountStar
+        | ReturnKind::Count(_, _)
+        | ReturnKind::Sum(_, _)
+        | ReturnKind::Avg(_, _)
+        | ReturnKind::Min(_, _)
+        | ReturnKind::Max(_, _) => true,
+        _ => false,
     });
 
-    let columns: Vec<String> = ast.returns.iter().map(|r| r.output_name.clone()).collect();
+    let mut rows: Vec<Vec<PropertyValue>> = Vec::new();
 
     if has_aggregations {
-        let mut row = Vec::new();
+        let mut agg_row = Vec::new();
         for item in &ast.returns {
             match &item.kind {
                 ReturnKind::CountStar => {
-                    row.push(PropertyValue::Int(bindings.len() as i64));
+                    agg_row.push(PropertyValue::Int(bindings.len() as i64));
                 }
-                ReturnKind::Count(alias, prop) => {
-                    let mut cnt = 0;
+                ReturnKind::Count(alias, prop_opt) => {
+                    let mut count = 0;
                     for b in &bindings {
-                        if let Some(p) = prop {
-                            if get_prop(b, alias, p).is_some() {
-                                cnt += 1;
+                        if let Some(&node_id) = b.nodes.get(alias) {
+                            if let Some(prop) = prop_opt {
+                                if graph.get_node_property(node_id, prop).is_some() {
+                                    count += 1;
+                                }
+                            } else {
+                                count += 1;
                             }
-                        } else if b.nodes.contains_key(alias) {
-                            cnt += 1;
                         }
                     }
-                    row.push(PropertyValue::Int(cnt));
+                    agg_row.push(PropertyValue::Int(count));
                 }
                 ReturnKind::Sum(alias, prop) => {
-                    let mut sum = 0.0f64;
+                    let mut sum_f = 0.0;
+                    let mut is_int = true;
+                    let mut sum_i = 0i64;
                     for b in &bindings {
-                        if let Some(v) = get_prop(b, alias, prop) {
-                            if let Some(n) = v.as_f64() {
-                                sum += n;
+                        if let Some(&node_id) = b.nodes.get(alias) {
+                            if let Some(val) = graph.get_node_property(node_id, prop) {
+                                match val {
+                                    PropertyValue::Int(i) => {
+                                        sum_i += i;
+                                        sum_f += *i as f64;
+                                    }
+                                    PropertyValue::Float(f) => {
+                                        is_int = false;
+                                        sum_f += f;
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
                     }
-                    row.push(PropertyValue::Float(sum));
+                    if is_int {
+                        agg_row.push(PropertyValue::Int(sum_i));
+                    } else {
+                        agg_row.push(PropertyValue::Float(sum_f));
+                    }
                 }
                 ReturnKind::Avg(alias, prop) => {
-                    let mut sum = 0.0f64;
-                    let mut cnt = 0;
+                    let mut sum = 0.0;
+                    let mut count = 0;
                     for b in &bindings {
-                        if let Some(v) = get_prop(b, alias, prop) {
-                            if let Some(n) = v.as_f64() {
-                                sum += n;
-                                cnt += 1;
+                        if let Some(&node_id) = b.nodes.get(alias) {
+                            if let Some(val) = graph.get_node_property(node_id, prop) {
+                                if let Some(f) = val.as_f64() {
+                                    sum += f;
+                                    count += 1;
+                                }
                             }
                         }
                     }
-                    let avg = if cnt > 0 { sum / cnt as f64 } else { 0.0 };
-                    row.push(PropertyValue::Float(avg));
+                    if count > 0 {
+                        agg_row.push(PropertyValue::Float(sum / count as f64));
+                    } else {
+                        agg_row.push(PropertyValue::Null);
+                    }
                 }
                 ReturnKind::Min(alias, prop) => {
                     let mut min_val: Option<PropertyValue> = None;
                     for b in &bindings {
-                        if let Some(v) = get_prop(b, alias, prop) {
-                            match &min_val {
-                                None => min_val = Some(v),
-                                Some(curr) => {
-                                    if &v < curr {
-                                        min_val = Some(v);
-                                    }
+                        if let Some(&node_id) = b.nodes.get(alias) {
+                            if let Some(val) = graph.get_node_property(node_id, prop) {
+                                match &min_val {
+                                    None => min_val = Some(val.clone()),
+                                    Some(curr) if val < curr => min_val = Some(val.clone()),
+                                    _ => {}
                                 }
                             }
                         }
                     }
-                    row.push(min_val.unwrap_or(PropertyValue::Null));
+                    agg_row.push(min_val.unwrap_or(PropertyValue::Null));
                 }
                 ReturnKind::Max(alias, prop) => {
                     let mut max_val: Option<PropertyValue> = None;
                     for b in &bindings {
-                        if let Some(v) = get_prop(b, alias, prop) {
-                            match &max_val {
-                                None => max_val = Some(v),
-                                Some(curr) => {
-                                    if &v > curr {
-                                        max_val = Some(v);
-                                    }
+                        if let Some(&node_id) = b.nodes.get(alias) {
+                            if let Some(val) = graph.get_node_property(node_id, prop) {
+                                match &max_val {
+                                    None => max_val = Some(val.clone()),
+                                    Some(curr) if val > curr => max_val = Some(val.clone()),
+                                    _ => {}
                                 }
                             }
                         }
                     }
-                    row.push(max_val.unwrap_or(PropertyValue::Null));
+                    agg_row.push(max_val.unwrap_or(PropertyValue::Null));
                 }
-                ReturnKind::Property(alias, prop) => {
-                    let val = bindings
-                        .first()
-                        .and_then(|b| get_prop(b, alias, prop))
-                        .unwrap_or(PropertyValue::Null);
-                    row.push(val);
-                }
-                ReturnKind::Node(alias) => {
-                    let node_val = bindings
-                        .first()
-                        .map(|b| get_node_val(b, alias))
-                        .unwrap_or(PropertyValue::Null);
-                    row.push(node_val);
+                _ => {
+                    agg_row.push(PropertyValue::Null);
                 }
             }
         }
-        return Ok(CypherResult::new(columns, vec![row]));
-    }
-
-    // Standard Projections (non-aggregated)
-    let mut rows: Vec<Vec<PropertyValue>> = Vec::with_capacity(bindings.len());
-
-    for b in &bindings {
-        let mut row = Vec::with_capacity(ast.returns.len());
-        for item in &ast.returns {
-            match &item.kind {
-                ReturnKind::Property(alias, prop) => {
-                    let val = get_prop(b, alias, prop).unwrap_or(PropertyValue::Null);
-                    row.push(val);
-                }
-                ReturnKind::Node(alias) => {
-                    row.push(get_node_val(b, alias));
-                }
-                _ => row.push(PropertyValue::Null),
-            }
-        }
-        rows.push(row);
-    }
-
-    // 6. Handle ORDER BY
-    if !ast.order_by.is_empty() {
-        let order_spec = ast.order_by.clone();
-        let return_spec = ast.returns.clone();
-
-        rows.sort_by(|row_a, row_b| {
-            for order in &order_spec {
-                // Locate column index
-                let col_idx = return_spec.iter().position(|r| match &r.kind {
-                    ReturnKind::Property(a, p) => {
-                        a == &order.alias && order.prop.as_deref() == Some(p)
+        rows.push(agg_row);
+    } else {
+        for b in &bindings {
+            let mut row = Vec::new();
+            for item in &ast.returns {
+                match &item.kind {
+                    ReturnKind::Property(alias, prop) => {
+                        let mut val = PropertyValue::Null;
+                        if let Some(&node_id) = b.nodes.get(alias) {
+                            if let Some(v) = graph.get_node_property(node_id, prop) {
+                                val = v.clone();
+                            }
+                        } else if let Some(&rel_id) = b.edges.get(alias) {
+                            if let Some(v) = graph.get_edge_property(rel_id, prop) {
+                                val = v.clone();
+                            }
+                        }
+                        row.push(val);
                     }
-                    ReturnKind::Node(a) => a == &order.alias && order.prop.is_none(),
-                    _ => false,
-                });
-
-                if let Some(idx) = col_idx {
-                    let val_a = &row_a[idx];
-                    let val_b = &row_b[idx];
-                    let cmp = val_a.cmp(val_b);
-                    if cmp != std::cmp::Ordering::Equal {
-                        return if order.descending {
-                            cmp.reverse()
+                    ReturnKind::Node(alias) => {
+                        if let Some(&node_id) = b.nodes.get(alias) {
+                            if let Some(node) = graph.get_node(node_id) {
+                                let mut map = BTreeMap::new();
+                                map.insert("id".to_string(), PropertyValue::Int(node.id.raw() as i64));
+                                for (k, v) in node.properties.iter() {
+                                    map.insert(k.clone(), v.clone());
+                                }
+                                row.push(PropertyValue::Map(map));
+                            } else {
+                                row.push(PropertyValue::Null);
+                            }
                         } else {
-                            cmp
-                        };
+                            row.push(PropertyValue::Null);
+                        }
                     }
+                    _ => row.push(PropertyValue::Null),
                 }
             }
-            std::cmp::Ordering::Equal
-        });
+            rows.push(row);
+        }
     }
 
-    // 7. Handle LIMIT
-    if let Some(lim) = ast.limit {
-        if rows.len() > lim {
-            rows.truncate(lim);
+    // 6. Apply ORDER BY sorting if specified
+    if !ast.order_by.is_empty() && !rows.is_empty() {
+        for order in ast.order_by.iter().rev() {
+            // Find target column index matching alias or alias.prop
+            let col_name = if let Some(ref p) = order.prop {
+                format!("{}.{}", order.alias, p)
+            } else {
+                order.alias.clone()
+            };
+
+            if let Some(col_idx) = columns.iter().position(|c| c == &col_name) {
+                let desc = order.descending;
+                rows.sort_by(|a, b| {
+                    let ord = a[col_idx].cmp(&b[col_idx]);
+                    if desc {
+                        ord.reverse()
+                    } else {
+                        ord
+                    }
+                });
+            }
         }
+    }
+
+    // 7. Apply LIMIT pagination
+    if let Some(lim) = ast.limit {
+        rows.truncate(lim);
     }
 
     Ok(CypherResult::new(columns, rows))
+}
+
+/// Executes a parsed Cypher AST against a mutable Graph instance with empty parameters.
+pub fn execute_ast(graph: &mut Graph, ast: AstQuery) -> Result<CypherResult> {
+    execute_ast_with_params(graph, ast, &HashMap::new())
 }

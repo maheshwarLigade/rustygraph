@@ -104,6 +104,22 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token::Dash);
                     }
                 }
+                '$' => {
+                    self.chars.next();
+                    let mut param = String::new();
+                    while let Some(&c) = self.chars.peek() {
+                        if c.is_alphanumeric() || c == '_' {
+                            param.push(c);
+                            self.chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    if param.is_empty() {
+                        return Err(GraphError::InvalidOperation("Expected parameter name after '$'".into()));
+                    }
+                    tokens.push(Token::Parameter(param));
+                }
                 '"' | '\'' => {
                     let quote = ch;
                     self.chars.next();

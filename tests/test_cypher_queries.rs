@@ -91,3 +91,48 @@ fn test_cypher_syntax_error_handling() {
     let err2 = graph.cypher("SELECT * FROM nodes");
     assert!(err2.is_err());
 }
+
+#[test]
+fn test_cypher_parameterized_queries_and_plan_caching() -> Result<()> {
+    let mut graph = Graph::new();
+
+    // Create test nodes
+    graph.cypher("CREATE (p:User {name: 'Alice', age: 28, city: 'London'})")?;
+    graph.cypher("CREATE (p:User {name: 'Bob', age: 34, city: 'Paris'})")?;
+    graph.cypher("CREATE (p:User {name: 'Charlie', age: 42, city: 'London'})")?;
+
+    // Parameterized WHERE clause
+    let mut params = std::collections::HashMap::new();
+    params.insert("target_city".to_string(), PropertyValue::from("London"));
+
+    let res = graph.cypher_with_params(
+        "MATCH (p:User) WHERE p.city = $target_city RETURN p.name, p.age ORDER BY p.age ASC",
+        &params,
+    )?;
+
+    assert_eq!(res.len(), 2);
+    assert_eq!(res.rows[0][0], PropertyValue::from("Alice"));
+    assert_eq!(res.rows[1][0], PropertyValue::from("Charlie"));
+
+    // Reuse the same query with different parameter
+    params.insert("target_city".to_string(), PropertyValue::from("Paris"));
+    let res_paris = graph.cypher_with_params(
+        "MATCH (p:User) WHERE p.city = $target_city RETURN p.name, p.age ORDER BY p.age ASC",
+        &params,
+    )?;
+    assert_eq!(res_paris.len(), 1);
+    assert_eq!(res_paris.rows[0][0], PropertyValue::from("Bob"));
+
+    // Parameterized CREATE mutation
+    let mut create_params = std::collections::HashMap::new();
+    create_params.insert("new_name".to_string(), PropertyValue::from("Diana"));
+    create_params.insert("new_city".to_string(), PropertyValue::from("Tokyo"));
+    graph.cypher_with_params("CREATE (p:User {name: $new_name, city: $new_city})", &create_params)?;
+
+    let res_tokyo = graph.cypher("MATCH (p:User) WHERE p.city = 'Tokyo' RETURN p.name")?;
+    assert_eq!(res_tokyo.len(), 1);
+    assert_eq!(res_tokyo.rows[0][0], PropertyValue::from("Diana"));
+
+    Ok(())
+}
+

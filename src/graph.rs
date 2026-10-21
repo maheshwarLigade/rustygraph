@@ -1,6 +1,6 @@
 use crate::error::{GraphError, Result};
 use crate::id::{NodeId, RelId};
-use crate::index::IndexManager;
+use crate::index::{FulltextIndex, FulltextSearchResult, IndexManager};
 use crate::model::{Direction, Node, Relationship};
 use crate::stats::GraphStats;
 use crate::storage::SlotArena;
@@ -30,6 +30,8 @@ pub struct Graph {
     type_index: HashMap<String, HashSet<RelId>>,
     index_manager: IndexManager,
     vector_indices: HashMap<String, VectorIndex>,
+    #[serde(default)]
+    fulltext_indices: HashMap<String, FulltextIndex>,
 }
 
 impl Default for Graph {
@@ -48,6 +50,7 @@ impl Graph {
             type_index: HashMap::new(),
             index_manager: IndexManager::new(),
             vector_indices: HashMap::new(),
+            fulltext_indices: HashMap::new(),
         }
     }
 
@@ -60,6 +63,7 @@ impl Graph {
             type_index: HashMap::new(),
             index_manager: IndexManager::new(),
             vector_indices: HashMap::new(),
+            fulltext_indices: HashMap::new(),
         }
     }
 
@@ -137,6 +141,17 @@ impl Graph {
             }
         }
 
+        // Update fulltext indices
+        for ft_idx in self.fulltext_indices.values_mut() {
+            if rec.node.has_label(&ft_idx.label) {
+                if let Some(val) = rec.node.prop(&ft_idx.property_key) {
+                    if let Some(text) = val.as_str() {
+                        ft_idx.insert(node_id, text);
+                    }
+                }
+            }
+        }
+
         Ok(node_id)
     }
 
@@ -164,6 +179,17 @@ impl Graph {
                 if let Some(val) = node.prop(&v_idx.property_key) {
                     if let Some(vec) = val.as_vector() {
                         let _ = v_idx.insert(node_id, vec);
+                    }
+                }
+            }
+        }
+
+        // Update fulltext indices
+        for ft_idx in self.fulltext_indices.values_mut() {
+            if node.has_label(&ft_idx.label) {
+                if let Some(val) = node.prop(&ft_idx.property_key) {
+                    if let Some(text) = val.as_str() {
+                        ft_idx.insert(node_id, text);
                     }
                 }
             }
@@ -256,6 +282,17 @@ impl Graph {
                     }
                 }
             }
+
+            // Update matching fulltext indices
+            for ft_idx in self.fulltext_indices.values_mut() {
+                if ft_idx.label == label_str {
+                    if let Some(val) = rec.node.prop(&ft_idx.property_key) {
+                        if let Some(text) = val.as_str() {
+                            ft_idx.insert(id, text);
+                        }
+                    }
+                }
+            }
         }
 
         Ok(inserted)
@@ -287,6 +324,13 @@ impl Graph {
             for v_idx in self.vector_indices.values_mut() {
                 if v_idx.label == label {
                     v_idx.remove(id);
+                }
+            }
+
+            // Remove from fulltext indices for this label
+            for ft_idx in self.fulltext_indices.values_mut() {
+                if ft_idx.label == label {
+                    ft_idx.remove(id);
                 }
             }
         }
@@ -347,6 +391,18 @@ impl Graph {
             }
         }
 
+        // Update fulltext indices
+        let text_data = val_prop.as_str();
+        for ft_idx in self.fulltext_indices.values_mut() {
+            if rec.node.has_label(&ft_idx.label) && ft_idx.property_key == key_str {
+                if let Some(text) = text_data {
+                    ft_idx.insert(id, text);
+                } else {
+                    ft_idx.remove(id);
+                }
+            }
+        }
+
         Ok(old_val)
     }
 
@@ -374,6 +430,13 @@ impl Graph {
         for v_idx in self.vector_indices.values_mut() {
             if v_idx.property_key == key {
                 v_idx.remove(id);
+            }
+        }
+
+        // Remove from fulltext indices
+        for ft_idx in self.fulltext_indices.values_mut() {
+            if ft_idx.property_key == key {
+                ft_idx.remove(id);
             }
         }
 
@@ -406,6 +469,11 @@ impl Graph {
         // Remove from vector indices
         for v_idx in self.vector_indices.values_mut() {
             v_idx.remove(id);
+        }
+
+        // Remove from fulltext indices
+        for ft_idx in self.fulltext_indices.values_mut() {
+            ft_idx.remove(id);
         }
 
         // Cascade delete all outgoing relationships
@@ -847,9 +915,8 @@ impl Graph {
         }
 
         // Register constraint and underlying index
-        let created = self
-            .index_manager
-            .create_unique_constraint(label, property_key);
+        self.index_manager
+            .create_unique_constraint(label, property_key)?;
 
         // Populate index
         let node_ids = self.nodes_with_label(label);
@@ -860,7 +927,7 @@ impl Graph {
             }
         }
 
-        Ok(created)
+        Ok(true)
     }
 
     /// Drop a unique constraint on (label, property_key).
@@ -1023,6 +1090,114 @@ impl Graph {
     }
 
     // =========================================================================
+    // Inverted Full-Text Keyword Search
+    // =========================================================================
+
+    /// Create an inverted full-text index on a specific label and string property.
+    /// Returns Ok(true) if newly created, or Ok(false) if an index with this name already exists.
+    pub fn create_fulltext_index(
+        &mut self,
+        name: impl Into<String>,
+        label: impl Into<String>,
+        property_key: impl Into<String>,
+    ) -> Result<bool> {
+        let name_str = name.into();
+        let label_str = label.into();
+        let prop_str = property_key.into();
+
+        if self.fulltext_indices.contains_key(&name_str) {
+            return Ok(false);
+        }
+
+        let mut ft_idx = FulltextIndex::new(&name_str, &label_str, &prop_str);
+
+        // Populate from existing nodes
+        let node_ids = self.nodes_with_label(&label_str);
+        for id in node_ids {
+            if let Some(val) = self.get_node_property(id, &prop_str) {
+                if let Some(text) = val.as_str() {
+                    ft_idx.insert(id, text);
+                }
+            }
+        }
+
+        self.fulltext_indices.insert(name_str, ft_idx);
+        Ok(true)
+    }
+
+    /// Drop a full-text index by name.
+    pub fn drop_fulltext_index(&mut self, name: &str) -> bool {
+        self.fulltext_indices.remove(name).is_some()
+    }
+
+    /// Returns true if a full-text index exists with the given name.
+    pub fn has_fulltext_index(&self, name: &str) -> bool {
+        self.fulltext_indices.contains_key(name)
+    }
+
+    /// Get a reference to a FulltextIndex by name.
+    pub fn get_fulltext_index(&self, name: &str) -> Option<&FulltextIndex> {
+        self.fulltext_indices.get(name)
+    }
+
+    /// Returns an iterator over all full-text indices.
+    pub fn fulltext_indices(&self) -> impl Iterator<Item = &FulltextIndex> {
+        self.fulltext_indices.values()
+    }
+
+    /// Query the full-text index using BM25/TF-IDF relevance ranking for `top_k` matches.
+    pub fn query_fulltext_index(
+        &self,
+        name: &str,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<FulltextSearchResult>> {
+        let idx = self.fulltext_indices.get(name).ok_or_else(|| {
+            GraphError::InvalidOperation(format!("Full-text index '{name}' not found"))
+        })?;
+
+        Ok(idx.search(query, top_k))
+    }
+
+    /// Query the full-text index with prefix matching.
+    pub fn query_fulltext_prefix(
+        &self,
+        name: &str,
+        prefix: &str,
+        top_k: usize,
+    ) -> Result<Vec<FulltextSearchResult>> {
+        let idx = self.fulltext_indices.get(name).ok_or_else(|| {
+            GraphError::InvalidOperation(format!("Full-text index '{name}' not found"))
+        })?;
+
+        Ok(idx.search_prefix(prefix, top_k))
+    }
+
+    /// Perform Hybrid Graph Search: Find matching entry nodes using inverted full-text keyword retrieval,
+    /// then traverse the surrounding graph topology from each match up to `traverse_depth`.
+    pub fn hybrid_search_and_traverse(
+        &self,
+        index_name: &str,
+        query: &str,
+        top_k: usize,
+        traverse_depth: usize,
+    ) -> Result<Vec<(FulltextSearchResult, Vec<crate::traversal::Path>)>> {
+        let hits = self.query_fulltext_index(index_name, query, top_k)?;
+        let mut results = Vec::with_capacity(hits.len());
+
+        for item in hits {
+            let paths = self
+                .traverse(item.node_id)
+                .outgoing()
+                .max_depth(traverse_depth)
+                .paths();
+            results.push((item, paths));
+        }
+
+        Ok(results)
+    }
+
+    // =========================================================================
     // Statistics & Inspection
     // =========================================================================
 
@@ -1106,6 +1281,7 @@ impl Graph {
         self.type_index.clear();
         self.index_manager.clear();
         self.vector_indices.clear();
+        self.fulltext_indices.clear();
     }
 
     /// Returns true if the graph has neither nodes nor relationships.

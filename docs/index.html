@@ -480,6 +480,16 @@ public class App {
                 <td><code>ORDER BY p.price DESC LIMIT 10</code></td>
                 <td>Sorts result rows ascending or descending with pagination limit.</td>
               </tr>
+              <tr>
+                <td>Parameters</td>
+                <td><code>MATCH (p:Person) WHERE p.role = $role RETURN p</code></td>
+                <td>Safe parameterized execution resolving <code>$param</code> variables against provided parameter maps.</td>
+              </tr>
+              <tr>
+                <td>Plan Cache</td>
+                <td>Automatic LRU AST caching</td>
+                <td>Thread-safe LRU compilation cache eliminating lexing & parsing overhead for repeat queries.</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -751,6 +761,24 @@ for (hit, paths) in rag_results {
                 <td><code>/cluster/status</code></td>
                 <td>Cluster consensus state, leader, and peer nodes</td>
                 <td><code>none</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-get">GET</span></td>
+                <td><code>/</code> or <code>/ui</code></td>
+                <td>Embedded Interactive Visual Web Studio (Canvas Graph Explorer & Cypher Editor)</td>
+                <td><code>none</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-post">POST</span></td>
+                <td><code>/fulltext/indexes</code></td>
+                <td>Create inverted full-text keyword search index</td>
+                <td><code>{"name": "...", "label": "...", "property_key": "..."}</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge-method badge-post">POST</span></td>
+                <td><code>/fulltext/search</code></td>
+                <td>Query inverted full-text index with BM25/TF-IDF relevance and prefix matching</td>
+                <td><code>{"index": "...", "query": "...", "top_k": 10, "prefix": false}</code></td>
               </tr>
             </tbody>
           </table>

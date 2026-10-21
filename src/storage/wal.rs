@@ -83,6 +83,11 @@ pub enum WalOp {
         dimension: usize,
         similarity: VectorSimilarity,
     },
+    CreateFulltextIndex {
+        name: String,
+        label: String,
+        property_key: String,
+    },
     CypherQuery {
         query: String,
     },

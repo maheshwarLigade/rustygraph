@@ -5,6 +5,7 @@ use crate::graph::Graph;
 use crate::id::{NodeId, RelId};
 use crate::model::{Node, Relationship};
 use crate::value::PropertyValue;
+use crate::index::FulltextSearchResult;
 use crate::vector::{VectorSearchResult, VectorSimilarity};
 use super::snapshot::SnapshotManager;
 use super::transaction::TransactionManager;
@@ -299,7 +300,16 @@ impl StandaloneDatabase {
 
     /// Executes an openCypher query string against the database with WAL persistence.
     pub fn cypher(&self, query_str: &str) -> Result<CypherResult> {
-        let res = self.graph.with_write(|g| g.cypher(query_str))?;
+        self.cypher_with_params(query_str, &HashMap::new())
+    }
+
+    /// Executes a parameterized openCypher query string against the database with WAL persistence.
+    pub fn cypher_with_params(
+        &self,
+        query_str: &str,
+        params: &HashMap<String, PropertyValue>,
+    ) -> Result<CypherResult> {
+        let res = self.graph.with_write(|g| g.cypher_with_params(query_str, params))?;
         if is_cypher_mutation(query_str) {
             self.wal.append(WalOp::CypherQuery {
                 query: query_str.to_string(),
@@ -401,6 +411,59 @@ impl StandaloneDatabase {
         self.graph.with_read(|g| g.query_vector_index(name, k, query_vector))
     }
 
+    /// Creates an inverted full-text keyword search index on a label and property key.
+    pub fn create_fulltext_index(
+        &self,
+        name: &str,
+        label: &str,
+        property_key: &str,
+    ) -> Result<()> {
+        self.graph.with_write(|g| {
+            g.create_fulltext_index(name, label, property_key)
+        })?;
+
+        let op = WalOp::CreateFulltextIndex {
+            name: name.to_string(),
+            label: label.to_string(),
+            property_key: property_key.to_string(),
+        };
+        self.wal.append(op)?;
+        self.track_operation();
+
+        Ok(())
+    }
+
+    /// Queries a full-text inverted index for top-k relevance matches using BM25/TF-IDF.
+    pub fn query_fulltext_index(
+        &self,
+        name: &str,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<FulltextSearchResult>> {
+        self.graph.with_read(|g| g.query_fulltext_index(name, query, top_k))
+    }
+
+    /// Queries a full-text inverted index using prefix matching.
+    pub fn query_fulltext_prefix(
+        &self,
+        name: &str,
+        prefix: &str,
+        top_k: usize,
+    ) -> Result<Vec<FulltextSearchResult>> {
+        self.graph.with_read(|g| g.query_fulltext_prefix(name, prefix, top_k))
+    }
+
+    /// Hybrid Graph Search: full-text keyword search + graph topology traversal.
+    pub fn hybrid_search_and_traverse(
+        &self,
+        name: &str,
+        query: &str,
+        top_k: usize,
+        depth: usize,
+    ) -> Result<Vec<(FulltextSearchResult, Vec<crate::traversal::Path>)>> {
+        self.graph.with_read(|g| g.hybrid_search_and_traverse(name, query, top_k, depth))
+    }
+
     // =========================================================================
     // Checkpointing & Persistence
     // =========================================================================
@@ -470,6 +533,9 @@ impl StandaloneDatabase {
             }
             WalOp::CreateVectorIndex { name, label, prop_key, dimension, similarity } => {
                 let _ = graph.create_vector_index(&name, &label, &prop_key, dimension, similarity);
+            }
+            WalOp::CreateFulltextIndex { name, label, property_key } => {
+                let _ = graph.create_fulltext_index(&name, &label, &property_key);
             }
             WalOp::CypherQuery { query } => {
                 let _ = graph.cypher(&query);

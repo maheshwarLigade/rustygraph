@@ -1,12 +1,33 @@
+use crate::error::{GraphError, Result};
 use crate::model::Direction;
 use crate::value::PropertyValue;
+use std::collections::HashMap;
+
+/// An evaluatable value in an AST, either a direct literal or a runtime query parameter ($param).
+#[derive(Debug, Clone, PartialEq)]
+pub enum QueryValue {
+    Literal(PropertyValue),
+    Parameter(String),
+}
+
+impl QueryValue {
+    pub fn resolve(&self, params: &HashMap<String, PropertyValue>) -> Result<PropertyValue> {
+        match self {
+            QueryValue::Literal(v) => Ok(v.clone()),
+            QueryValue::Parameter(name) => params
+                .get(name)
+                .cloned()
+                .ok_or_else(|| GraphError::InvalidOperation(format!("Missing parameter '${name}' for Cypher query"))),
+        }
+    }
+}
 
 /// A parsed node in a MATCH or CREATE pattern.
 #[derive(Debug, Clone)]
 pub struct ParsedNode {
     pub alias: String,
     pub label: Option<String>,
-    pub props: Vec<(String, PropertyValue)>,
+    pub props: Vec<(String, QueryValue)>,
 }
 
 /// A parsed relationship pattern in a MATCH or CREATE pattern.
@@ -15,7 +36,7 @@ pub struct ParsedRel {
     pub alias: Option<String>,
     pub rel_type: Option<String>,
     pub direction: Direction,
-    pub props: Vec<(String, PropertyValue)>,
+    pub props: Vec<(String, QueryValue)>,
 }
 
 /// Comparison operators in WHERE expressions.
@@ -35,7 +56,7 @@ pub struct WhereClause {
     pub alias: String,
     pub prop: String,
     pub op: CompOp,
-    pub val: PropertyValue,
+    pub val: QueryValue,
 }
 
 /// Aggregation or projection kinds in RETURN statements.
@@ -63,7 +84,7 @@ pub struct ReturnItem {
 pub struct SetClause {
     pub alias: String,
     pub prop: String,
-    pub val: PropertyValue,
+    pub val: QueryValue,
 }
 
 /// A DELETE or DETACH DELETE clause.
@@ -92,4 +113,11 @@ pub struct AstQuery {
     pub returns: Vec<ReturnItem>,
     pub order_by: Vec<OrderByClause>,
     pub limit: Option<usize>,
+}
+
+impl AstQuery {
+    /// Returns true if this AST contains any mutation clauses (CREATE, SET, DELETE, DETACH).
+    pub fn is_mutation(&self) -> bool {
+        !self.creates.is_empty() || !self.set_clauses.is_empty() || !self.delete_clauses.is_empty()
+    }
 }

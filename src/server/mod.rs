@@ -8,6 +8,7 @@ pub mod config;
 pub mod dto;
 pub mod response;
 pub mod router;
+pub mod studio;
 
 pub use config::ServerConfig;
 pub use dto::*;
@@ -119,7 +120,7 @@ impl StandaloneServer {
             let header_cors = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
             let header_methods = Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"GET, POST, DELETE, OPTIONS"[..]).unwrap();
             let header_headers = Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"Content-Type"[..]).unwrap();
-            let header_content_type = Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
+            let header_content_type = Header::from_bytes(&b"Content-Type"[..], resp.content_type.as_bytes()).unwrap();
 
             let response = Response::from_string(resp.body)
                 .with_status_code(resp.status)

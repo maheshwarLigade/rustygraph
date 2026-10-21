@@ -28,11 +28,20 @@ An ultra-fast, in-memory labeled property graph database library written in Rust
   - **Similarity**: Jaccard similarity coefficient and common neighbor identification.
 - **Declarative Pattern Matching & Cypher Query Engine**:
   - Native Cypher query string parser, lexer, AST evaluation (`graph.cypher(...)`), and tabular ASCII result printer.
+  - **Query Plan Caching**: Thread-safe LRU AST precompilation cache (`QueryPlanCache`) avoiding repeated lexing and parsing on hot queries.
+  - **Parameterized Cypher Execution**: Safe and reusable prepared queries using `$param` syntax (`MATCH (n:Person) WHERE n.role = $role RETURN n`).
   - Strongly typed query builder supporting multi-hop graph patterns, `WHERE` predicates, `ORDER BY`, pagination (`SKIP`/`LIMIT`), and arbitrary projections.
-- **Vector Database & GraphRAG**:
+- **Inverted Full-Text Search & Hybrid GraphRAG**:
+  - BM25 and TF-IDF relevance scoring with tokenization, stop-word elimination, and prefix search.
+  - Inverted postings index automatically kept in sync across node mutations, property updates, and deletions.
+  - **Hybrid Search**: Seamlessly find entry nodes by keyword relevance, then execute topological graph traversals (`hybrid_search_and_traverse`).
+- **Vector Database & Semantic Search**:
   - In-memory vector indexing with multiple similarity metrics: **Cosine Similarity**, **Euclidean Distance**, and **Dot Product**.
   - Dynamic dimension validation, top-$k$ nearest neighbor search, and automatic index synchronization upon node insertions, property updates, and deletions.
   - Native **GraphRAG** hybrid search (`vector_search_and_traverse`) combining semantic vector retrieval with relational knowledge graph expansion.
+- **Embedded Interactive Web Studio**:
+  - Zero-dependency modern dark-mode visual console served directly from `GET /` and `GET /ui` on `rustygraph-server`.
+  - Force-directed interactive canvas graph visualizer, parameter-enabled Cypher editor, live database telemetry, and full-text keyword explorer.
 - **Distributed Clustering & CAP Theorem Guarantees**:
   - **Configurable CP Mode (Neo4j Causal Clustering)**: Strict majority quorum writes ($> N/2$), leader election, and automatic write rejection on minority partitions to strictly prevent split-brain.
   - **Configurable AP Mode (High Availability)**: 100% write availability across all partitions with Lamport logical clocks and anti-entropy Last-Write-Wins (LWW) reconciliation upon healing.

@@ -1,5 +1,5 @@
 use super::ast::{
-    AstQuery, CompOp, DeleteClause, OrderByClause, ParsedNode, ParsedRel, ReturnItem, ReturnKind,
+    AstQuery, CompOp, DeleteClause, OrderByClause, ParsedNode, ParsedRel, QueryValue, ReturnItem, ReturnKind,
     SetClause, WhereClause,
 };
 use super::token::Token;
@@ -43,6 +43,18 @@ impl Parser {
         }
     }
 
+    fn parse_value(&mut self) -> Result<QueryValue> {
+        match self.next() {
+            Some(Token::StringLit(s)) => Ok(QueryValue::Literal(PropertyValue::String(s))),
+            Some(Token::IntLit(i)) => Ok(QueryValue::Literal(PropertyValue::Int(i))),
+            Some(Token::FloatLit(f)) => Ok(QueryValue::Literal(PropertyValue::Float(f))),
+            Some(Token::Parameter(p)) => Ok(QueryValue::Parameter(p)),
+            other => Err(GraphError::InvalidOperation(format!(
+                "Expected literal value or parameter ($param), found {other:?}"
+            ))),
+        }
+    }
+
     fn parse_node(&mut self) -> Result<ParsedNode> {
         self.expect(Token::LParen)?;
 
@@ -72,16 +84,7 @@ impl Parser {
                     return Err(GraphError::InvalidOperation("Expected property key".into()));
                 };
                 self.expect(Token::Colon)?;
-                let val = match self.next() {
-                    Some(Token::StringLit(s)) => PropertyValue::String(s),
-                    Some(Token::IntLit(i)) => PropertyValue::Int(i),
-                    Some(Token::FloatLit(f)) => PropertyValue::Float(f),
-                    other => {
-                        return Err(GraphError::InvalidOperation(format!(
-                            "Expected literal value, found {other:?}"
-                        )));
-                    }
-                };
+                let val = self.parse_value()?;
                 props.push((key, val));
                 if self.peek() == Some(&Token::Comma) {
                     self.next();
@@ -130,14 +133,7 @@ impl Parser {
                     return Err(GraphError::InvalidOperation("Expected property key in relationship".into()));
                 };
                 self.expect(Token::Colon)?;
-                let val = match self.next() {
-                    Some(Token::StringLit(s)) => PropertyValue::String(s),
-                    Some(Token::IntLit(i)) => PropertyValue::Int(i),
-                    Some(Token::FloatLit(f)) => PropertyValue::Float(f),
-                    other => {
-                        return Err(GraphError::InvalidOperation(format!("Expected literal value in relationship props, found {:?}", other)));
-                    }
-                };
+                let val = self.parse_value()?;
                 props.push((key, val));
                 if self.peek() == Some(&Token::Comma) {
                     self.next();
@@ -242,17 +238,7 @@ impl Parser {
                             }
                         };
 
-                        let val = match self.next() {
-                            Some(Token::StringLit(s)) => PropertyValue::String(s),
-                            Some(Token::IntLit(i)) => PropertyValue::Int(i),
-                            Some(Token::FloatLit(f)) => PropertyValue::Float(f),
-                            other => {
-                                return Err(GraphError::InvalidOperation(format!(
-                                    "Expected literal value in WHERE, found {other:?}"
-                                )));
-                            }
-                        };
-
+                        let val = self.parse_value()?;
                         where_clauses.push(WhereClause { alias, prop, op, val });
 
                         if self.peek() == Some(&Token::And) {
@@ -286,16 +272,7 @@ impl Parser {
                             }
                         }
                         self.expect(Token::Eq)?;
-                        let val = match self.next() {
-                            Some(Token::StringLit(s)) => PropertyValue::String(s),
-                            Some(Token::IntLit(i)) => PropertyValue::Int(i),
-                            Some(Token::FloatLit(f)) => PropertyValue::Float(f),
-                            other => {
-                                return Err(GraphError::InvalidOperation(format!(
-                                    "Expected literal value in SET, found {other:?}"
-                                )));
-                            }
-                        };
+                        let val = self.parse_value()?;
                         set_clauses.push(SetClause { alias, prop, val });
                         if self.peek() == Some(&Token::Comma) {
                             self.next();

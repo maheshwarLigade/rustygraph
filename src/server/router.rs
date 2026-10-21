@@ -24,6 +24,9 @@ pub fn dispatch_route(
     let path = url.split('?').next().unwrap_or(url);
 
     match (method, path) {
+        // Embedded Visual Web Studio
+        (&Method::Get, "/") | (&Method::Get, "/ui") => HttpResponse::html(super::studio::STUDIO_HTML),
+
         // Health & Stats
         (&Method::Get, "/health") => HttpResponse::ok(r#"{"status":"healthy","engine":"rusty_graph"}"#),
         (&Method::Get, "/stats") => {
@@ -57,7 +60,7 @@ pub fn dispatch_route(
         // openCypher Query Execution
         (&Method::Post, "/cypher") => {
             if let Ok(req) = serde_json::from_slice::<CypherRequest>(body) {
-                match db.cypher(&req.query) {
+                match db.cypher_with_params(&req.query, &req.params) {
                     Ok(res) => HttpResponse::json(&serde_json::json!({
                         "success": true,
                         "columns": res.columns,
@@ -391,6 +394,33 @@ pub fn dispatch_route(
                 }
             } else {
                 HttpResponse::error(StatusCode(400), "Invalid JSON for /vector/search")
+            }
+        }
+
+        // Inverted Full-Text Keyword Search
+        (&Method::Post, "/fulltext/indexes") => {
+            if let Ok(req) = serde_json::from_slice::<CreateFulltextIndexRequest>(body) {
+                match db.create_fulltext_index(&req.name, &req.label, &req.property_key) {
+                    Ok(_) => HttpResponse::ok(r#"{"success":true,"message":"Full-text index created"}"#),
+                    Err(e) => HttpResponse::error(StatusCode(500), &e.to_string()),
+                }
+            } else {
+                HttpResponse::error(StatusCode(400), "Invalid JSON for /fulltext/indexes")
+            }
+        }
+        (&Method::Post, "/fulltext/search") => {
+            if let Ok(req) = serde_json::from_slice::<FulltextSearchRequest>(body) {
+                let res = if req.prefix {
+                    db.query_fulltext_prefix(&req.index, &req.query, req.top_k)
+                } else {
+                    db.query_fulltext_index(&req.index, &req.query, req.top_k)
+                };
+                match res {
+                    Ok(hits) => HttpResponse::json(&hits),
+                    Err(e) => HttpResponse::error(StatusCode(400), &e.to_string()),
+                }
+            } else {
+                HttpResponse::error(StatusCode(400), "Invalid JSON for /fulltext/search")
             }
         }
 

@@ -40,6 +40,7 @@ pub enum Token {
     ArrowRight,
     ArrowLeft,
     Dash,
+    Parameter(String),
     Ident(String),
     StringLit(String),
     IntLit(i64),

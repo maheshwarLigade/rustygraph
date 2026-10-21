@@ -5,6 +5,7 @@ use crate::model::{Node, Relationship};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::index::FulltextIndex;
 use crate::vector::VectorIndex;
 
 /// Serializable dump structure containing all nodes and relationships.
@@ -14,6 +15,8 @@ pub struct GraphDump {
     pub relationships: Vec<Relationship>,
     #[serde(default)]
     pub vector_indices: Vec<VectorIndex>,
+    #[serde(default)]
+    pub fulltext_indices: Vec<FulltextIndex>,
 }
 
 impl Graph {
@@ -23,6 +26,7 @@ impl Graph {
             nodes: self.nodes().cloned().collect(),
             relationships: self.edges().cloned().collect(),
             vector_indices: self.vector_indices().cloned().collect(),
+            fulltext_indices: self.fulltext_indices().cloned().collect(),
         }
     }
 
@@ -72,6 +76,15 @@ impl Graph {
                 &v_idx.property_key,
                 v_idx.dimensions,
                 v_idx.metric,
+            );
+        }
+
+        // Recreate fulltext indices
+        for ft_idx in dump.fulltext_indices {
+            let _ = graph.create_fulltext_index(
+                &ft_idx.name,
+                &ft_idx.label,
+                &ft_idx.property_key,
             );
         }
 
