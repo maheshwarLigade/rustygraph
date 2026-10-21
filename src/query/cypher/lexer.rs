@@ -55,7 +55,12 @@ impl<'a> Lexer<'a> {
                 }
                 '.' => {
                     self.chars.next();
-                    tokens.push(Token::Dot);
+                    if self.chars.peek() == Some(&'.') {
+                        self.chars.next();
+                        tokens.push(Token::DotDot);
+                    } else {
+                        tokens.push(Token::Dot);
+                    }
                 }
                 '*' => {
                     self.chars.next();
@@ -142,6 +147,11 @@ impl<'a> Lexer<'a> {
                             num_str.push(c);
                             self.chars.next();
                         } else if c == '.' && !is_float {
+                            let mut clone = self.chars.clone();
+                            clone.next();
+                            if clone.peek() == Some(&'.') {
+                                break;
+                            }
                             is_float = true;
                             num_str.push(c);
                             self.chars.next();
@@ -188,6 +198,8 @@ impl<'a> Lexer<'a> {
                         "ASC" => tokens.push(Token::Asc),
                         "DESC" => tokens.push(Token::Desc),
                         "COUNT" => tokens.push(Token::Count),
+                        "COLLECT" => tokens.push(Token::Collect),
+                        "DISTINCT" => tokens.push(Token::Distinct),
                         "SUM" => tokens.push(Token::Sum),
                         "AVG" => tokens.push(Token::Avg),
                         "MIN" => tokens.push(Token::Min),

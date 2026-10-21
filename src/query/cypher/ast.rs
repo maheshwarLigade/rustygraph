@@ -36,6 +36,7 @@ pub struct ParsedRel {
     pub alias: Option<String>,
     pub rel_type: Option<String>,
     pub direction: Direction,
+    pub hops: Option<(usize, usize)>,
     pub props: Vec<(String, QueryValue)>,
 }
 
@@ -62,14 +63,15 @@ pub struct WhereClause {
 /// Aggregation or projection kinds in RETURN statements.
 #[derive(Debug, Clone)]
 pub enum ReturnKind {
-    Property(String, String),       // alias.prop
-    Node(String),                   // alias
-    CountStar,                      // count(*)
-    Count(String, Option<String>),  // count(p) or count(p.age)
-    Sum(String, String),            // sum(p.age)
-    Avg(String, String),            // avg(p.age)
-    Min(String, String),            // min(p.age)
-    Max(String, String),            // max(p.age)
+    Property(String, String),             // alias.prop
+    Node(String),                         // alias
+    CountStar,                            // count(*)
+    Count(String, Option<String>, bool),  // count(p) or count(DISTINCT p.age)
+    Sum(String, String),                  // sum(p.age)
+    Avg(String, String),                  // avg(p.age)
+    Min(String, String),                  // min(p.age)
+    Max(String, String),                  // max(p.age)
+    Collect(String, Option<String>, bool),// collect(p) or collect(DISTINCT p.name)
 }
 
 /// A projected item in a RETURN clause.
@@ -111,6 +113,7 @@ pub struct AstQuery {
     pub set_clauses: Vec<SetClause>,
     pub delete_clauses: Vec<DeleteClause>,
     pub returns: Vec<ReturnItem>,
+    pub distinct: bool,
     pub order_by: Vec<OrderByClause>,
     pub limit: Option<usize>,
 }

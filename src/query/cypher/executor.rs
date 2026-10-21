@@ -101,7 +101,7 @@ pub fn execute_ast_with_params(
                         row.push(PropertyValue::Null);
                     }
                 }
-                ReturnKind::CountStar | ReturnKind::Count(_, _) => {
+                ReturnKind::CountStar | ReturnKind::Count(_, _, _) => {
                     row.push(PropertyValue::Int(alias_node_map.len() as i64));
                 }
                 _ => row.push(PropertyValue::Null),
@@ -127,10 +127,11 @@ pub fn execute_ast_with_params(
 
     for (i, rel) in pattern_rels.iter().enumerate() {
         let target_node = &pattern_nodes[i + 1];
-        builder = builder.rel(
+        builder = builder.rel_hops(
             rel.alias.clone(),
             rel.rel_type.clone(),
             rel.direction,
+            rel.hops,
             target_node.alias.clone(),
         );
         if let Some(lbl) = &target_node.label {
@@ -225,13 +226,14 @@ pub fn execute_ast_with_params(
 
     // 5. Evaluate RETURN columns and projections
     let columns: Vec<String> = ast.returns.iter().map(|r| r.output_name.clone()).collect();
-    let has_aggregations = ast.returns.iter().any(|r| match r.kind {
+    let has_aggregations = ast.returns.iter().any(|r| match &r.kind {
         ReturnKind::CountStar
-        | ReturnKind::Count(_, _)
+        | ReturnKind::Count(_, _, _)
         | ReturnKind::Sum(_, _)
         | ReturnKind::Avg(_, _)
         | ReturnKind::Min(_, _)
-        | ReturnKind::Max(_, _) => true,
+        | ReturnKind::Max(_, _)
+        | ReturnKind::Collect(_, _, _) => true,
         _ => false,
     });
 
@@ -244,20 +246,52 @@ pub fn execute_ast_with_params(
                 ReturnKind::CountStar => {
                     agg_row.push(PropertyValue::Int(bindings.len() as i64));
                 }
-                ReturnKind::Count(alias, prop_opt) => {
+                ReturnKind::Count(alias, prop_opt, is_distinct) => {
                     let mut count = 0;
+                    let mut seen = std::collections::HashSet::new();
                     for b in &bindings {
                         if let Some(&node_id) = b.nodes.get(alias) {
                             if let Some(prop) = prop_opt {
-                                if graph.get_node_property(node_id, prop).is_some() {
-                                    count += 1;
+                                if let Some(val) = graph.get_node_property(node_id, prop) {
+                                    if !*is_distinct || seen.insert(val.clone()) {
+                                        count += 1;
+                                    }
                                 }
                             } else {
-                                count += 1;
+                                if !*is_distinct || seen.insert(PropertyValue::Int(node_id.raw() as i64)) {
+                                    count += 1;
+                                }
                             }
                         }
                     }
                     agg_row.push(PropertyValue::Int(count));
+                }
+                ReturnKind::Collect(alias, prop_opt, is_distinct) => {
+                    let mut list = Vec::new();
+                    let mut seen = std::collections::HashSet::new();
+                    for b in &bindings {
+                        if let Some(&node_id) = b.nodes.get(alias) {
+                            let val = if let Some(prop) = prop_opt {
+                                graph.get_node_property(node_id, prop).cloned().unwrap_or(PropertyValue::Null)
+                            } else if let Some(node) = graph.get_node(node_id) {
+                                let mut map = BTreeMap::new();
+                                map.insert("id".to_string(), PropertyValue::Int(node.id.raw() as i64));
+                                for (k, v) in node.properties.iter() {
+                                    map.insert(k.clone(), v.clone());
+                                }
+                                PropertyValue::Map(map)
+                            } else {
+                                PropertyValue::Null
+                            };
+
+                            if val != PropertyValue::Null {
+                                if !*is_distinct || seen.insert(val.clone()) {
+                                    list.push(val);
+                                }
+                            }
+                        }
+                    }
+                    agg_row.push(PropertyValue::List(list));
                 }
                 ReturnKind::Sum(alias, prop) => {
                     let mut sum_f = 0.0;
@@ -380,6 +414,12 @@ pub fn execute_ast_with_params(
             }
             rows.push(row);
         }
+    }
+
+    // Deduplicate rows if RETURN DISTINCT
+    if ast.distinct {
+        let mut seen = std::collections::HashSet::new();
+        rows.retain(|r| seen.insert(r.clone()));
     }
 
     // 6. Apply ORDER BY sorting if specified

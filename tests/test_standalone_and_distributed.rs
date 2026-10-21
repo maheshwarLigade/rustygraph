@@ -227,6 +227,11 @@ fn test_distributed_tcp_cluster_consensus() -> Result<()> {
         Vec::new(),
     )?;
 
+    // Populate db1 with initial knowledge state before node 2 joins
+    let mut initial_props = HashMap::new();
+    initial_props.insert("cluster_key".to_string(), PropertyValue::from("synced_value"));
+    db1.create_node(vec!["ClusterTest".to_string()], initial_props)?;
+
     thread::sleep(Duration::from_millis(200));
 
     // Node 2 joins Node 1
@@ -251,6 +256,11 @@ fn test_distributed_tcp_cluster_consensus() -> Result<()> {
     assert!(status1.is_leader, "Node 1 should be leader");
     assert!(!status2.is_leader, "Node 2 should be follower");
     assert_eq!(status2.known_leader, Some("node-1".to_string()));
+
+    // Verify node 2 automatically synchronized initial snapshot from node 1
+    let synced_res = db2.cypher("MATCH (c:ClusterTest) RETURN c.cluster_key")?;
+    assert_eq!(synced_res.len(), 1, "Node 2 must receive snapshot of existing graph");
+    assert_eq!(synced_res.rows[0][0], PropertyValue::from("synced_value"));
 
     node1.stop();
     node2.stop();

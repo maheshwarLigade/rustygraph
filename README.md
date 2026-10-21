@@ -28,6 +28,8 @@ An ultra-fast, in-memory labeled property graph database library written in Rust
   - **Similarity**: Jaccard similarity coefficient and common neighbor identification.
 - **Declarative Pattern Matching & Cypher Query Engine**:
   - Native Cypher query string parser, lexer, AST evaluation (`graph.cypher(...)`), and tabular ASCII result printer.
+  - **Variable-Length Path Expansion**: Multi-hop pattern matching syntax `*`, `*3`, `*1..3`, and `*..5` executed via high-performance breadth-first search.
+  - **List Aggregations & DISTINCT Projections**: Flexible columnar deduplication (`RETURN DISTINCT ...`), `collect(n.prop)`, and `count(DISTINCT n.prop)`.
   - **Query Plan Caching**: Thread-safe LRU AST precompilation cache (`QueryPlanCache`) avoiding repeated lexing and parsing on hot queries.
   - **Parameterized Cypher Execution**: Safe and reusable prepared queries using `$param` syntax (`MATCH (n:Person) WHERE n.role = $role RETURN n`).
   - Strongly typed query builder supporting multi-hop graph patterns, `WHERE` predicates, `ORDER BY`, pagination (`SKIP`/`LIMIT`), and arbitrary projections.
@@ -37,12 +39,14 @@ An ultra-fast, in-memory labeled property graph database library written in Rust
   - **Hybrid Search**: Seamlessly find entry nodes by keyword relevance, then execute topological graph traversals (`hybrid_search_and_traverse`).
 - **Vector Database & Semantic Search**:
   - In-memory vector indexing with multiple similarity metrics: **Cosine Similarity**, **Euclidean Distance**, and **Dot Product**.
+  - **SIMD Auto-Vectorization Loop Unrolling**: 8-lane parallel accumulator unrolling for high-throughput distance calculations without CPU pipeline stalls.
   - Dynamic dimension validation, top-$k$ nearest neighbor search, and automatic index synchronization upon node insertions, property updates, and deletions.
   - Native **GraphRAG** hybrid search (`vector_search_and_traverse`) combining semantic vector retrieval with relational knowledge graph expansion.
 - **Embedded Interactive Web Studio**:
   - Zero-dependency modern dark-mode visual console served directly from `GET /` and `GET /ui` on `rustygraph-server`.
   - Force-directed interactive canvas graph visualizer, parameter-enabled Cypher editor, live database telemetry, and full-text keyword explorer.
 - **Distributed Clustering & CAP Theorem Guarantees**:
+  - **Automatic State Snapshot Synchronization**: Cold or rejoining cluster nodes automatically fetch snapshot state on cluster join (`SyncSnapshotRequest`/`SyncSnapshotResponse`) for instantaneous catch-up.
   - **Configurable CP Mode (Neo4j Causal Clustering)**: Strict majority quorum writes ($> N/2$), leader election, and automatic write rejection on minority partitions to strictly prevent split-brain.
   - **Configurable AP Mode (High Availability)**: 100% write availability across all partitions with Lamport logical clocks and anti-entropy Last-Write-Wins (LWW) reconciliation upon healing.
   - **Zero-Dependency Virtual Network**: In-memory network partition simulation (`network.partition(...)`, `network.isolate(...)`, `network.heal()`) for reproducible distributed testing.
@@ -162,15 +166,20 @@ fn main() -> Result<()> {
     let mut graph = Graph::new();
     // ... populate graph ...
 
+    // 1. Variable-length path query with DISTINCT projection
     let result = graph.cypher(
-        "MATCH (p:Person)-[:KNOWS]->(f:Person) \
-         WHERE f.age > 25 \
-         RETURN p.name, f.name, f.age \
-         ORDER BY f.age DESC \
-         LIMIT 10"
+        "MATCH (p:Person {name: 'Alice'})-[*1..3]->(target) \
+         RETURN DISTINCT target.name, target.role"
     )?;
-
     println!("{}", result.to_ascii_table());
+
+    // 2. Aggregation with collect(...) and count(...)
+    let agg = graph.cypher(
+        "MATCH (p:Person)-[:CONTRIBUTES_TO]->(d:Database) \
+         RETURN d.name, count(p) as total, collect(p.name) as contributors"
+    )?;
+    println!("{}", agg.to_ascii_table());
+
     Ok(())
 }
 ```

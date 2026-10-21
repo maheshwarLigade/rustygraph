@@ -123,6 +123,34 @@ impl Parser {
             }
         }
 
+        let mut hops = None;
+        if self.peek() == Some(&Token::Star) {
+            self.next();
+            let min_h = if let Some(Token::IntLit(n)) = self.peek() {
+                let val = *n as usize;
+                self.next();
+                Some(val)
+            } else {
+                None
+            };
+
+            if self.peek() == Some(&Token::DotDot) {
+                self.next();
+                let max_h = if let Some(Token::IntLit(n)) = self.peek() {
+                    let val = *n as usize;
+                    self.next();
+                    Some(val)
+                } else {
+                    None
+                };
+                hops = Some((min_h.unwrap_or(1), max_h.unwrap_or(10)));
+            } else if let Some(m) = min_h {
+                hops = Some((m, m));
+            } else {
+                hops = Some((1, 10));
+            }
+        }
+
         let mut props = Vec::new();
         if self.peek() == Some(&Token::LBrace) {
             self.next();
@@ -161,6 +189,7 @@ impl Parser {
             alias,
             rel_type,
             direction,
+            hops,
             props,
         })
     }
@@ -186,6 +215,7 @@ impl Parser {
         let mut set_clauses = Vec::new();
         let mut delete_clauses = Vec::new();
         let mut returns = Vec::new();
+        let mut distinct = false;
         let mut order_by = Vec::new();
         let mut limit = None;
 
@@ -310,6 +340,10 @@ impl Parser {
                 }
                 Token::Return => {
                     self.next();
+                    if self.peek() == Some(&Token::Distinct) {
+                        self.next();
+                        distinct = true;
+                    }
                     loop {
                         let return_item = self.parse_return_item()?;
                         returns.push(return_item);
@@ -388,6 +422,7 @@ impl Parser {
             set_clauses,
             delete_clauses,
             returns,
+            distinct,
             order_by,
             limit,
         })
@@ -405,7 +440,62 @@ impl Parser {
                         kind: ReturnKind::CountStar,
                         output_name: "count(*)".to_string(),
                     })
-                } else if let Some(Token::Ident(alias)) = self.next() {
+                } else {
+                    let mut is_distinct = false;
+                    if self.peek() == Some(&Token::Distinct) {
+                        self.next();
+                        is_distinct = true;
+                    }
+                    if let Some(Token::Ident(alias)) = self.next() {
+                        let mut prop = None;
+                        if self.peek() == Some(&Token::Dot) {
+                            self.next();
+                            if let Some(Token::Ident(mut p)) = self.next() {
+                                while self.peek() == Some(&Token::Dot) {
+                                    self.next();
+                                    if let Some(Token::Ident(sub)) = self.next() {
+                                        p.push('.');
+                                        p.push_str(&sub);
+                                    }
+                                }
+                                prop = Some(p);
+                            }
+                        }
+                        self.expect(Token::RParen)?;
+                        let name = match &prop {
+                            Some(p) => {
+                                if is_distinct {
+                                    format!("count(DISTINCT {}.{})", alias, p)
+                                } else {
+                                    format!("count({}.{})", alias, p)
+                                }
+                            }
+                            None => {
+                                if is_distinct {
+                                    format!("count(DISTINCT {})", alias)
+                                } else {
+                                    format!("count({})", alias)
+                                }
+                            }
+                        };
+                        Ok(ReturnItem {
+                            kind: ReturnKind::Count(alias, prop, is_distinct),
+                            output_name: name,
+                        })
+                    } else {
+                        Err(GraphError::InvalidOperation("Expected expression in count(...)".into()))
+                    }
+                }
+            }
+            Some(Token::Collect) => {
+                self.next();
+                self.expect(Token::LParen)?;
+                let mut is_distinct = false;
+                if self.peek() == Some(&Token::Distinct) {
+                    self.next();
+                    is_distinct = true;
+                }
+                if let Some(Token::Ident(alias)) = self.next() {
                     let mut prop = None;
                     if self.peek() == Some(&Token::Dot) {
                         self.next();
@@ -422,15 +512,27 @@ impl Parser {
                     }
                     self.expect(Token::RParen)?;
                     let name = match &prop {
-                        Some(p) => format!("count({}.{})", alias, p),
-                        None => format!("count({})", alias),
+                        Some(p) => {
+                            if is_distinct {
+                                format!("collect(DISTINCT {}.{})", alias, p)
+                            } else {
+                                format!("collect({}.{})", alias, p)
+                            }
+                        }
+                        None => {
+                            if is_distinct {
+                                format!("collect(DISTINCT {})", alias)
+                            } else {
+                                format!("collect({})", alias)
+                            }
+                        }
                     };
                     Ok(ReturnItem {
-                        kind: ReturnKind::Count(alias, prop),
+                        kind: ReturnKind::Collect(alias, prop, is_distinct),
                         output_name: name,
                     })
                 } else {
-                    Err(GraphError::InvalidOperation("Expected expression in count(...)".into()))
+                    Err(GraphError::InvalidOperation("Expected expression in collect(...)".into()))
                 }
             }
             Some(Token::Sum) => self.parse_agg_func(|a, p| ReturnKind::Sum(a, p), "sum"),

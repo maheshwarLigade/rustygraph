@@ -80,6 +80,7 @@ struct RelPattern {
     alias: Option<String>,
     rel_type: Option<String>,
     direction: Direction,
+    hops: Option<(usize, usize)>,
     target_node: NodePattern,
 }
 
@@ -187,18 +188,20 @@ impl<'a> QueryBuilder<'a> {
         self.rel(None, Some(rel_type.into()), Direction::Both, target_alias.into())
     }
 
-    /// Follow a relationship with full configuration.
-    pub fn rel(
+    /// Follow a relationship with full configuration and optional variable-length hops.
+    pub fn rel_hops(
         mut self,
         edge_alias: Option<String>,
         rel_type: Option<String>,
         direction: Direction,
+        hops: Option<(usize, usize)>,
         target_alias: String,
     ) -> Self {
         self.steps.push(RelPattern {
             alias: edge_alias,
             rel_type,
             direction,
+            hops,
             target_node: NodePattern {
                 alias: target_alias,
                 label: None,
@@ -206,6 +209,17 @@ impl<'a> QueryBuilder<'a> {
             },
         });
         self
+    }
+
+    /// Follow a relationship with full configuration.
+    pub fn rel(
+        self,
+        edge_alias: Option<String>,
+        rel_type: Option<String>,
+        direction: Direction,
+        target_alias: String,
+    ) -> Self {
+        self.rel_hops(edge_alias, rel_type, direction, None, target_alias)
     }
 
     /// Add a WHERE filter predicate evaluated against the query context.
@@ -302,43 +316,104 @@ impl<'a> QueryBuilder<'a> {
             for ctx in contexts {
                 let current_node_id = ctx.node_bindings[&current_node_alias];
 
-                if let Ok(edges) = self.graph.incident_edges(current_node_id, step.direction) {
-                    for edge in edges {
-                        if let Some(t) = &step.rel_type {
-                            if !edge.matches_type(t) {
-                                continue;
-                            }
+                if let Some((min_h, max_h)) = step.hops {
+                    let mut queue = std::collections::VecDeque::new();
+                    queue.push_back((current_node_id, 0usize, Vec::new()));
+                    let mut visited_paths = std::collections::HashSet::new();
+
+                    while let Some((curr, depth, path_edges)) = queue.pop_front() {
+                        if depth >= max_h {
+                            continue;
                         }
 
-                        if let Some(target_id) = edge.other_node(current_node_id) {
-                            if let Some(target_node) = self.graph.get_node(target_id) {
-                                // Check label
-                                if let Some(lbl) = &step.target_node.label {
-                                    if !target_node.has_label(lbl) {
+                        if let Ok(edges) = self.graph.incident_edges(curr, step.direction) {
+                            for edge in edges {
+                                if let Some(t) = &step.rel_type {
+                                    if !edge.matches_type(t) {
                                         continue;
                                     }
                                 }
 
-                                // Check properties
-                                let mut matches_props = true;
-                                for (k, v) in &step.target_node.properties {
-                                    if target_node.prop(k) != Some(v) {
-                                        matches_props = false;
-                                        break;
-                                    }
+                                if path_edges.contains(&edge.id) {
+                                    continue;
                                 }
 
-                                if matches_props {
-                                    let mut new_ctx = ctx.clone();
-                                    new_ctx
-                                        .node_bindings
-                                        .insert(step.target_node.alias.clone(), target_id);
-                                    if let Some(edge_alias) = &step.alias {
-                                        new_ctx
-                                            .edge_bindings
-                                            .insert(edge_alias.clone(), edge.id);
+                                if let Some(target_id) = edge.other_node(curr) {
+                                    let next_depth = depth + 1;
+                                    let mut next_edges = path_edges.clone();
+                                    next_edges.push(edge.id);
+
+                                    if next_depth >= min_h {
+                                        if let Some(target_node) = self.graph.get_node(target_id) {
+                                            let label_ok = match &step.target_node.label {
+                                                Some(lbl) => target_node.has_label(lbl),
+                                                None => true,
+                                            };
+                                            let props_ok = step.target_node.properties.iter().all(|(k, v)| {
+                                                target_node.prop(k) == Some(v)
+                                            });
+
+                                            if label_ok && props_ok && visited_paths.insert((target_id, next_edges.clone())) {
+                                                let mut new_ctx = ctx.clone();
+                                                new_ctx
+                                                    .node_bindings
+                                                    .insert(step.target_node.alias.clone(), target_id);
+                                                if let Some(edge_alias) = &step.alias {
+                                                    if let Some(&first_e) = next_edges.first() {
+                                                        new_ctx.edge_bindings.insert(edge_alias.clone(), first_e);
+                                                    }
+                                                }
+                                                next_contexts.push(new_ctx);
+                                            }
+                                        }
                                     }
-                                    next_contexts.push(new_ctx);
+
+                                    if next_depth < max_h {
+                                        queue.push_back((target_id, next_depth, next_edges));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if let Ok(edges) = self.graph.incident_edges(current_node_id, step.direction) {
+                        for edge in edges {
+                            if let Some(t) = &step.rel_type {
+                                if !edge.matches_type(t) {
+                                    continue;
+                                }
+                            }
+
+                            if let Some(target_id) = edge.other_node(current_node_id) {
+                                if let Some(target_node) = self.graph.get_node(target_id) {
+                                    // Check label
+                                    if let Some(lbl) = &step.target_node.label {
+                                        if !target_node.has_label(lbl) {
+                                            continue;
+                                        }
+                                    }
+
+                                    // Check properties
+                                    let mut matches_props = true;
+                                    for (k, v) in &step.target_node.properties {
+                                        if target_node.prop(k) != Some(v) {
+                                            matches_props = false;
+                                            break;
+                                        }
+                                    }
+
+                                    if matches_props {
+                                        let mut new_ctx = ctx.clone();
+                                        new_ctx
+                                            .node_bindings
+                                            .insert(step.target_node.alias.clone(), target_id);
+                                        if let Some(edge_alias) = &step.alias {
+                                            new_ctx
+                                                .edge_bindings
+                                                .insert(edge_alias.clone(), edge.id);
+                                        }
+                                        next_contexts.push(new_ctx);
+                                    }
                                 }
                             }
                         }

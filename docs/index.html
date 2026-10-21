@@ -340,6 +340,7 @@ public class App {
               <button class="preset-chip" data-query="CREATE (n:Person {name: 'Dave', age: 26})">2. Create Node</button>
               <button class="preset-chip" data-query="MATCH (p:Person) RETURN count(*), avg(p.age), min(p.age), max(p.age)">3. Aggregations</button>
               <button class="preset-chip" data-query=":begin">4. Transaction :begin</button>
+              <button class="preset-chip" data-query="MATCH (p:Person {name: 'Alice'})-[*1..2]->(f) RETURN DISTINCT f.name">5. Multi-Hop *1..2</button>
             </div>
           </div>
 
@@ -479,6 +480,16 @@ public class App {
                 <td><code>ORDER BY</code> / <code>LIMIT</code></td>
                 <td><code>ORDER BY p.price DESC LIMIT 10</code></td>
                 <td>Sorts result rows ascending or descending with pagination limit.</td>
+              </tr>
+              <tr>
+                <td>Variable-Length Paths</td>
+                <td><code>MATCH (a)-[*1..3]->(b)</code></td>
+                <td>Configurable bounded multi-hop traversals (e.g. <code>*</code>, <code>*3</code>, <code>*1..3</code>, <code>*..5</code>) using high-performance BFS.</td>
+              </tr>
+              <tr>
+                <td><code>DISTINCT</code> &amp; List Aggregation</td>
+                <td><code>RETURN DISTINCT d.name, collect(p.name)</code></td>
+                <td>Deduplicates result projections and accumulates entity properties into list arrays.</td>
               </tr>
               <tr>
                 <td>Parameters</td>
@@ -626,6 +637,19 @@ assert_eq!(committed_view.rows.len(), 2);</code></pre>
         <p class="lead-p">
           Seamlessly combine dense semantic vector embeddings with relational graph context for next-generation LLM retrieval.
         </p>
+
+        <div class="feature-grid" style="margin-bottom: 1.5rem;">
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <h4>SIMD Loop-Unrolled Math</h4>
+            <p>8-lane parallel accumulator unrolling for Cosine Similarity, Euclidean Distance, and Dot Product metrics designed for AVX2 and ARM NEON auto-vectorization without pipeline stalls.</p>
+          </div>
+          <div class="feature-card rust">
+            <div class="feature-icon">🕸️</div>
+            <h4>GraphRAG Hybrid Expansion</h4>
+            <p>Execute nearest-neighbor vector search to identify top-k seed documents, then automatically expand n-hop relational graph topologies for contextual prompt synthesis.</p>
+          </div>
+        </div>
 
         <div class="code-container">
           <div class="code-header">
@@ -804,6 +828,12 @@ for (hit, paths) in rag_results {
             <div class="feature-icon">⚡</div>
             <h4>AP Mode (High Availability)</h4>
             <p>100% write availability across all partitions with Lamport logical timestamps and anti-entropy Last-Write-Wins (LWW) reconciliation upon healing.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🔄</div>
+            <h4>State Sync & Snapshot Catch-up</h4>
+            <p>Automatic snapshot synchronization on cluster join (<code>SyncSnapshotRequest</code> / <code>SyncSnapshotResponse</code>), instantly rehydrating cold or lagging nodes to current state without replaying entire log histories.</p>
           </div>
         </div>
       </section>

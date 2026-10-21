@@ -63,6 +63,16 @@ pub enum ClusterMessage {
         lamport_time: u64,
         ops: Vec<WalOp>,
     },
+
+    // State Synchronization
+    SyncSnapshotRequest {
+        from: String,
+    },
+    SyncSnapshotResponse {
+        dump_json: String,
+        current_term: u64,
+        wal_sequence: u64,
+    },
 }
 
 /// Status summary of the distributed cluster node.
@@ -192,6 +202,15 @@ impl DistributedClusterNode {
                 *self.known_leader.write().unwrap() = Some(leader);
                 self.is_leader.store(false, Ordering::SeqCst);
             }
+            drop(guard);
+
+            // Replicate initial graph snapshot state from the target peer
+            let sync_req = ClusterMessage::SyncSnapshotRequest {
+                from: self.node_id.clone(),
+            };
+            if let Ok(Some(sync_resp)) = Self::send_message_to(peer_address, &sync_req) {
+                let _ = self.process_message(sync_resp);
+            }
         }
 
         Ok(())
@@ -314,6 +333,28 @@ impl DistributedClusterNode {
                 }
                 None
             }
+            ClusterMessage::SyncSnapshotRequest { .. } => {
+                let dump_json = self.db.graph().read(|g| g.to_json()).unwrap_or_default();
+                Some(ClusterMessage::SyncSnapshotResponse {
+                    dump_json,
+                    current_term: self.current_term.load(Ordering::SeqCst),
+                    wal_sequence: self.db.stats().current_wal_sequence,
+                })
+            }
+            ClusterMessage::SyncSnapshotResponse { dump_json, current_term, .. } => {
+                if !dump_json.is_empty() {
+                    if let Ok(graph) = crate::graph::Graph::from_json(&dump_json) {
+                        self.db.graph().write(|g| {
+                            *g = graph;
+                        });
+                        let _ = self.db.checkpoint();
+                    }
+                }
+                if current_term > self.current_term.load(Ordering::SeqCst) {
+                    self.current_term.store(current_term, Ordering::SeqCst);
+                }
+                None
+            }
         }
     }
 
@@ -378,7 +419,19 @@ impl DistributedClusterNode {
             peer_id: self.node_id.clone(),
             address: self.address.clone(),
         };
-        self.broadcast_message(&msg);
+        let peers: Vec<ClusterPeer> = self.peers.read().unwrap().values().cloned().collect();
+        for p in &peers {
+            if let Ok(Some(resp)) = Self::send_message_to(&p.address, &msg) {
+                let _ = self.process_message(resp);
+                let sync_req = ClusterMessage::SyncSnapshotRequest {
+                    from: self.node_id.clone(),
+                };
+                if let Ok(Some(sync_resp)) = Self::send_message_to(&p.address, &sync_req) {
+                    let _ = self.process_message(sync_resp);
+                }
+                break;
+            }
+        }
     }
 
     fn broadcast_message(&self, msg: &ClusterMessage) {
@@ -426,6 +479,9 @@ impl DistributedClusterNode {
             }
             WalOp::CreateVectorIndex { name, label, prop_key, dimension, similarity } => {
                 self.db.create_vector_index(&name, &label, &prop_key, dimension, similarity)?;
+            }
+            WalOp::CreateFulltextIndex { name, label, property_key } => {
+                self.db.create_fulltext_index(&name, &label, &property_key)?;
             }
             _ => {}
         }

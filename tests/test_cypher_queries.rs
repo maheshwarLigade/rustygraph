@@ -136,3 +136,62 @@ fn test_cypher_parameterized_queries_and_plan_caching() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn test_cypher_variable_length_paths() -> Result<()> {
+    let mut graph = Graph::new();
+
+    let a = graph.create_node_with(|n| { n.add_label("Station"); n.set_prop("name", "A"); })?;
+    let b = graph.create_node_with(|n| { n.add_label("Station"); n.set_prop("name", "B"); })?;
+    let c = graph.create_node_with(|n| { n.add_label("Station"); n.set_prop("name", "C"); })?;
+    let d = graph.create_node_with(|n| { n.add_label("Station"); n.set_prop("name", "D"); })?;
+
+    graph.create_edge(a, b, "TRACK")?;
+    graph.create_edge(b, c, "TRACK")?;
+    graph.create_edge(c, d, "TRACK")?;
+
+    // 1 to 2 hops from A should reach B and C
+    let res_1_2 = graph.cypher("MATCH (a:Station {name: 'A'})-[:TRACK*1..2]->(b:Station) RETURN b.name ORDER BY b.name ASC")?;
+    assert_eq!(res_1_2.len(), 2);
+    assert_eq!(res_1_2.rows[0][0], PropertyValue::from("B"));
+    assert_eq!(res_1_2.rows[1][0], PropertyValue::from("C"));
+
+    // Exactly 3 hops from A should reach D
+    let res_exact_3 = graph.cypher("MATCH (a:Station {name: 'A'})-[:TRACK*3]->(b:Station) RETURN b.name")?;
+    assert_eq!(res_exact_3.len(), 1);
+    assert_eq!(res_exact_3.rows[0][0], PropertyValue::from("D"));
+
+    Ok(())
+}
+
+#[test]
+fn test_cypher_collect_and_distinct() -> Result<()> {
+    let mut graph = Graph::new();
+
+    graph.cypher("CREATE (:Dev {name: 'Alice', role: 'Rust'})")?;
+    graph.cypher("CREATE (:Dev {name: 'Bob', role: 'Rust'})")?;
+    graph.cypher("CREATE (:Dev {name: 'Charlie', role: 'Go'})")?;
+
+    // Total count vs Distinct count
+    let res_count = graph.cypher("MATCH (d:Dev) RETURN count(d.role), count(DISTINCT d.role)")?;
+    assert_eq!(res_count.len(), 1);
+    assert_eq!(res_count.rows[0][0], PropertyValue::from(3));
+    assert_eq!(res_count.rows[0][1], PropertyValue::from(2));
+
+    // Collect list aggregation
+    let res_collect = graph.cypher("MATCH (d:Dev) RETURN collect(DISTINCT d.role)")?;
+    assert_eq!(res_collect.len(), 1);
+    if let PropertyValue::List(list) = &res_collect.rows[0][0] {
+        assert_eq!(list.len(), 2);
+        assert!(list.contains(&PropertyValue::from("Rust")));
+        assert!(list.contains(&PropertyValue::from("Go")));
+    } else {
+        panic!("Expected list from collect");
+    }
+
+    // RETURN DISTINCT
+    let res_distinct = graph.cypher("MATCH (d:Dev) RETURN DISTINCT d.role")?;
+    assert_eq!(res_distinct.len(), 2);
+
+    Ok(())
+}
+

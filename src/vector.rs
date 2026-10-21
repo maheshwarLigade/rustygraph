@@ -25,13 +25,37 @@ impl VectorSimilarity {
     }
 }
 
-/// Compute cosine similarity between two equal-length vectors.
+/// Compute cosine similarity between two equal-length vectors with auto-vectorization friendly unrolling.
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    let mut dot = 0.0f32;
-    let mut norm_a = 0.0f32;
-    let mut norm_b = 0.0f32;
+    let len = a.len().min(b.len());
+    let (a_slice, b_slice) = (&a[..len], &b[..len]);
 
-    for (&x, &y) in a.iter().zip(b.iter()) {
+    let mut dot0 = 0.0f32;
+    let mut dot1 = 0.0f32;
+    let mut norm_a0 = 0.0f32;
+    let mut norm_a1 = 0.0f32;
+    let mut norm_b0 = 0.0f32;
+    let mut norm_b1 = 0.0f32;
+
+    let mut a_chunks = a_slice.chunks_exact(8);
+    let mut b_chunks = b_slice.chunks_exact(8);
+
+    for (ac, bc) in (&mut a_chunks).zip(&mut b_chunks) {
+        dot0 += ac[0] * bc[0] + ac[1] * bc[1] + ac[2] * bc[2] + ac[3] * bc[3];
+        dot1 += ac[4] * bc[4] + ac[5] * bc[5] + ac[6] * bc[6] + ac[7] * bc[7];
+
+        norm_a0 += ac[0] * ac[0] + ac[1] * ac[1] + ac[2] * ac[2] + ac[3] * ac[3];
+        norm_a1 += ac[4] * ac[4] + ac[5] * ac[5] + ac[6] * ac[6] + ac[7] * ac[7];
+
+        norm_b0 += bc[0] * bc[0] + bc[1] * bc[1] + bc[2] * bc[2] + bc[3] * bc[3];
+        norm_b1 += bc[4] * bc[4] + bc[5] * bc[5] + bc[6] * bc[6] + bc[7] * bc[7];
+    }
+
+    let mut dot = dot0 + dot1;
+    let mut norm_a = norm_a0 + norm_a1;
+    let mut norm_b = norm_b0 + norm_b1;
+
+    for (&x, &y) in a_chunks.remainder().iter().zip(b_chunks.remainder()) {
         dot += x * y;
         norm_a += x * x;
         norm_b += y * y;
@@ -47,18 +71,60 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 
 /// Compute Euclidean similarity `1 / (1 + L2_distance)`.
 pub fn euclidean_similarity(a: &[f32], b: &[f32]) -> f32 {
-    let mut sum_sq = 0.0f32;
-    for (&x, &y) in a.iter().zip(b.iter()) {
+    let len = a.len().min(b.len());
+    let (a_slice, b_slice) = (&a[..len], &b[..len]);
+
+    let mut sum_sq0 = 0.0f32;
+    let mut sum_sq1 = 0.0f32;
+
+    let mut a_chunks = a_slice.chunks_exact(8);
+    let mut b_chunks = b_slice.chunks_exact(8);
+
+    for (ac, bc) in (&mut a_chunks).zip(&mut b_chunks) {
+        let d0 = ac[0] - bc[0];
+        let d1 = ac[1] - bc[1];
+        let d2 = ac[2] - bc[2];
+        let d3 = ac[3] - bc[3];
+        let d4 = ac[4] - bc[4];
+        let d5 = ac[5] - bc[5];
+        let d6 = ac[6] - bc[6];
+        let d7 = ac[7] - bc[7];
+
+        sum_sq0 += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3;
+        sum_sq1 += d4 * d4 + d5 * d5 + d6 * d6 + d7 * d7;
+    }
+
+    let mut sum_sq = sum_sq0 + sum_sq1;
+    for (&x, &y) in a_chunks.remainder().iter().zip(b_chunks.remainder()) {
         let diff = x - y;
         sum_sq += diff * diff;
     }
+
     let dist = sum_sq.sqrt();
     1.0 / (1.0 + dist)
 }
 
 /// Compute standard dot product between two equal-length vectors.
 pub fn dot_product(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
+    let len = a.len().min(b.len());
+    let (a_slice, b_slice) = (&a[..len], &b[..len]);
+
+    let mut dot0 = 0.0f32;
+    let mut dot1 = 0.0f32;
+
+    let mut a_chunks = a_slice.chunks_exact(8);
+    let mut b_chunks = b_slice.chunks_exact(8);
+
+    for (ac, bc) in (&mut a_chunks).zip(&mut b_chunks) {
+        dot0 += ac[0] * bc[0] + ac[1] * bc[1] + ac[2] * bc[2] + ac[3] * bc[3];
+        dot1 += ac[4] * bc[4] + ac[5] * bc[5] + ac[6] * bc[6] + ac[7] * bc[7];
+    }
+
+    let mut dot = dot0 + dot1;
+    for (&x, &y) in a_chunks.remainder().iter().zip(b_chunks.remainder()) {
+        dot += x * y;
+    }
+    dot
 }
 
 /// Represents a nearest-neighbor match returned by a vector search.
