@@ -42,12 +42,17 @@
 //!
 //!     // Fluent path traversal
 //!     let paths = graph.traverse(alice).outgoing().with_type("KNOWS").paths();
-//!     assert_eq!(paths.len(), 2); // depth 0 (start) and depth 1 (to bob)
+//!     assert_eq!(paths.len(), 2);
+//!
+//!     // Graph Data Science: Shortest Path
+//!     let shortest = algo::shortest_path_bfs(&graph, alice, bob, Direction::Outgoing);
+//!     assert!(shortest.is_some());
 //!
 //!     Ok(())
 //! }
 //! ```
 
+pub mod algo;
 pub mod error;
 pub mod graph;
 pub mod id;
@@ -60,6 +65,7 @@ pub mod value;
 
 /// Convenient re-exports of common types.
 pub mod prelude {
+    pub use crate::algo;
     pub use crate::error::{GraphError, Result};
     pub use crate::graph::Graph;
     pub use crate::id::{NodeId, RelId};
@@ -70,6 +76,11 @@ pub mod prelude {
     pub use crate::value::PropertyValue;
 }
 
+pub use algo::{
+    a_star, common_neighbors, degree_centrality, dijkstra, dijkstra_by_prop, jaccard_similarity,
+    pagerank, shortest_path_bfs, strongly_connected_components, topological_sort,
+    weakly_connected_components,
+};
 pub use error::{GraphError, Result};
 pub use graph::Graph;
 pub use id::{NodeId, RelId};
@@ -446,11 +457,182 @@ mod tests {
 
         // With default Uniqueness::Node, traversal from X should never loop infinitely
         let paths = graph.traverse(x).outgoing().paths();
-        // Depth 0: (X)
-        // Depth 1: (X)->(Y)
-        // Depth 2: (X)->(Y)->(Z)
-        // From Z, the only edge goes to X which is already in the path, so it halts!
         assert_eq!(paths.len(), 3);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_shortest_path_and_dijkstra() -> Result<()> {
+        let mut graph = Graph::new();
+
+        // Build diamond graph:
+        //      (A)
+        //     /   \
+        //    10     2
+        //   /       \
+        // (B)       (C)
+        //   \       /
+        //    1     3
+        //     \   /
+        //      (D)
+        let a = graph.create_node();
+        let b = graph.create_node();
+        let c = graph.create_node();
+        let d = graph.create_node();
+
+        let _e_ab = graph.create_edge_with(a, b, "ROAD", |r| { r.set_prop("weight", 10.0); })?;
+        let _e_bd = graph.create_edge_with(b, d, "ROAD", |r| { r.set_prop("weight", 1.0); })?;
+        let _e_ac = graph.create_edge_with(a, c, "ROAD", |r| { r.set_prop("weight", 2.0); })?;
+        let _e_cd = graph.create_edge_with(c, d, "ROAD", |r| { r.set_prop("weight", 3.0); })?;
+
+        // 1. BFS Shortest Path (unweighted) finds a 2-hop path (e.g. A->B->D or A->C->D)
+        let bfs_path = algo::shortest_path_bfs(&graph, a, d, Direction::Outgoing).expect("path exists");
+        assert_eq!(bfs_path.len(), 2);
+        assert_eq!(bfs_path.start_node(), a);
+        assert_eq!(bfs_path.end_node(), d);
+
+        // 2. Dijkstra Shortest Path (weighted) should choose A -> C -> D (cost 2 + 3 = 5.0) over A -> B -> D (10 + 1 = 11.0)
+        let (dijkstra_path, total_weight) =
+            algo::dijkstra_by_prop(&graph, a, d, Direction::Outgoing, "weight")
+                .expect("weighted path exists");
+
+        assert_eq!(total_weight, 5.0);
+        assert_eq!(dijkstra_path.nodes(), vec![a, c, d]);
+
+        // 3. A* pathfinding
+        let (astar_path, astar_weight) = algo::a_star(
+            &graph,
+            a,
+            d,
+            Direction::Outgoing,
+            |r| r.prop("weight").and_then(|v| v.as_f64()).unwrap_or(1.0),
+            |_curr, _target| 0.0, // admissible heuristic
+        )
+        .expect("A* path exists");
+
+        assert_eq!(astar_weight, 5.0);
+        assert_eq!(astar_path.nodes(), vec![a, c, d]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pagerank_and_centrality() -> Result<()> {
+        let mut graph = Graph::new();
+
+        // Star graph where nodes 1, 2, 3 all point to central hub 0
+        let hub = graph.create_node();
+        let n1 = graph.create_node();
+        let n2 = graph.create_node();
+        let n3 = graph.create_node();
+
+        graph.create_edge(n1, hub, "VOTES")?;
+        graph.create_edge(n2, hub, "VOTES")?;
+        graph.create_edge(n3, hub, "VOTES")?;
+
+        // Degree centrality
+        let in_degrees = algo::degree_centrality(&graph, Direction::Incoming);
+        assert_eq!(in_degrees.get(&hub), Some(&3));
+        assert_eq!(in_degrees.get(&n1), Some(&0));
+
+        // PageRank: Hub should have the highest PageRank score
+        let pr = algo::pagerank(&graph, 0.85, 50, 1e-6);
+        let hub_score = pr[&hub];
+        let n1_score = pr[&n1];
+
+        assert!(hub_score > n1_score);
+        assert_eq!(pr[&n1], pr[&n2]);
+        assert_eq!(pr[&n2], pr[&n3]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_community_detection_and_topo_sort() -> Result<()> {
+        let mut graph = Graph::new();
+
+        // Subgraph 1: a -> b
+        let a = graph.create_node();
+        let b = graph.create_node();
+        graph.create_edge(a, b, "LINK")?;
+
+        // Subgraph 2: c -> d -> e -> c (directed cycle)
+        let c = graph.create_node();
+        let d = graph.create_node();
+        let e = graph.create_node();
+        graph.create_edge(c, d, "LINK")?;
+        graph.create_edge(d, e, "LINK")?;
+        graph.create_edge(e, c, "LINK")?;
+
+        // 1. Weakly Connected Components (WCC): 2 components
+        let wcc = algo::weakly_connected_components(&graph);
+        assert_eq!(wcc.len(), 2);
+
+        // 2. Strongly Connected Components (SCC):
+        // {a}, {b}, and {c, d, e}
+        let scc = algo::strongly_connected_components(&graph);
+        assert_eq!(scc.len(), 3);
+        let cyclic_scc = scc.iter().find(|s| s.len() == 3).expect("cyclic component found");
+        assert!(cyclic_scc.contains(&c));
+        assert!(cyclic_scc.contains(&d));
+        assert!(cyclic_scc.contains(&e));
+
+        // 3. Topological sort:
+        // Currently graph has a cycle in {c, d, e}, so topological sort must fail
+        assert!(algo::topological_sort(&graph).is_err());
+
+        // Create a separate DAG
+        let mut dag = Graph::new();
+        let task1 = dag.create_node();
+        let task2 = dag.create_node();
+        let task3 = dag.create_node();
+        dag.create_edge(task1, task2, "DEPENDS")?;
+        dag.create_edge(task2, task3, "DEPENDS")?;
+
+        let topo = algo::topological_sort(&dag)?;
+        assert_eq!(topo, vec![task1, task2, task3]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_similarity_algorithms() -> Result<()> {
+        let mut graph = Graph::new();
+
+        let alice = graph.create_node();
+        let bob = graph.create_node();
+        let charlie = graph.create_node();
+        let movie1 = graph.create_node();
+        let movie2 = graph.create_node();
+        let movie3 = graph.create_node();
+
+        // Alice liked movie 1 and 2
+        graph.create_edge(alice, movie1, "LIKED")?;
+        graph.create_edge(alice, movie2, "LIKED")?;
+
+        // Bob liked movie 1 and 2 (identical taste)
+        graph.create_edge(bob, movie1, "LIKED")?;
+        graph.create_edge(bob, movie2, "LIKED")?;
+
+        // Charlie liked movie 2 and 3
+        graph.create_edge(charlie, movie2, "LIKED")?;
+        graph.create_edge(charlie, movie3, "LIKED")?;
+
+        // Common neighbors: Alice and Bob have {movie1, movie2}
+        let common = algo::common_neighbors(&graph, alice, bob, Direction::Outgoing);
+        assert_eq!(common.len(), 2);
+        assert!(common.contains(&movie1));
+        assert!(common.contains(&movie2));
+
+        // Jaccard similarity:
+        // Alice & Bob: intersection 2 / union 2 = 1.0
+        let sim_ab = algo::jaccard_similarity(&graph, alice, bob, Direction::Outgoing);
+        assert_eq!(sim_ab, 1.0);
+
+        // Alice & Charlie: intersection 1 ({movie2}) / union 3 ({movie1, movie2, movie3}) = 1/3 ~ 0.333
+        let sim_ac = algo::jaccard_similarity(&graph, alice, charlie, Direction::Outgoing);
+        assert!((sim_ac - (1.0 / 3.0)).abs() < 1e-6);
 
         Ok(())
     }
