@@ -73,6 +73,27 @@ impl<T> SlotArena<T> {
         id
     }
 
+    /// Insert an item with an exact required ID (useful for distributed replication and state recovery).
+    pub fn insert_exact(&mut self, id: u64, item: T) {
+        let idx = (id & 0xFFFF_FFFF) as usize;
+        let gen_val = (id >> 32) as u32;
+
+        if idx >= self.slots.len() {
+            self.slots.resize_with(idx + 1, || Slot {
+                generation: 1,
+                data: None,
+            });
+        }
+
+        let slot = &mut self.slots[idx];
+        if slot.data.is_none() {
+            self.active_count += 1;
+            self.free_list.retain(|&f| f as usize != idx);
+        }
+        slot.generation = gen_val;
+        slot.data = Some(item);
+    }
+
     /// Look up an item by its 64-bit generational ID.
     #[inline]
     pub fn get(&self, id: u64) -> Option<&T> {

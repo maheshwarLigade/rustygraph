@@ -122,6 +122,12 @@ impl<K: Into<String>, V: Into<PropertyValue>> FromIterator<(K, V)> for Propertie
     }
 }
 
+impl From<HashMap<String, PropertyValue>> for Properties {
+    fn from(entries: HashMap<String, PropertyValue>) -> Self {
+        Self { entries }
+    }
+}
+
 /// A Node (Vertex) in the property graph, containing an ID, zero or more labels, and properties.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Node {

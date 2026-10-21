@@ -136,6 +136,49 @@ impl Graph {
         Ok(node_id)
     }
 
+    /// Insert a pre-constructed node with its exact ID (used by cluster replication and anti-entropy sync).
+    pub fn insert_node_exact(&mut self, node: Node) -> Result<NodeId> {
+        let node_id = node.id;
+        let raw_id = node_id.raw();
+
+        // Update label index and property indices
+        for label in &node.labels {
+            self.label_index
+                .entry(label.clone())
+                .or_default()
+                .insert(node_id);
+
+            for (key, val) in node.properties.iter() {
+                self.index_manager
+                    .index_property(label, key, val.clone(), node_id);
+            }
+        }
+
+        // Update vector indices
+        for v_idx in self.vector_indices.values_mut() {
+            if node.has_label(&v_idx.label) {
+                if let Some(val) = node.prop(&v_idx.property_key) {
+                    if let Some(vec) = val.as_vector() {
+                        let _ = v_idx.insert(node_id, vec);
+                    }
+                }
+            }
+        }
+
+        if let Some(existing) = self.nodes.get_mut(raw_id) {
+            existing.node = node;
+        } else {
+            let record = NodeRecord {
+                node,
+                outgoing: SmallVec::new(),
+                incoming: SmallVec::new(),
+            };
+            self.nodes.insert_exact(raw_id, record);
+        }
+
+        Ok(node_id)
+    }
+
     /// Returns a reference to a Node by ID, or None if it doesn't exist.
     pub fn get_node(&self, id: NodeId) -> Option<&Node> {
         self.nodes.get(id.raw()).map(|rec| &rec.node)
@@ -437,6 +480,43 @@ impl Graph {
             .entry(type_str)
             .or_default()
             .insert(edge_id);
+
+        Ok(edge_id)
+    }
+
+    /// Insert a pre-constructed relationship with its exact ID (used by cluster replication and anti-entropy sync).
+    pub fn insert_edge_exact(&mut self, rel: Relationship) -> Result<RelId> {
+        let edge_id = rel.id;
+        let source = rel.source;
+        let target = rel.target;
+
+        if !self.contains_node(source) {
+            return Err(GraphError::NodeNotFound(source.raw()));
+        }
+        if !self.contains_node(target) {
+            return Err(GraphError::NodeNotFound(target.raw()));
+        }
+
+        // Update adjacency vectors if not already connected
+        if let Some(source_rec) = self.nodes.get_mut(source.raw()) {
+            if !source_rec.outgoing.contains(&edge_id) {
+                source_rec.outgoing.push(edge_id);
+            }
+        }
+
+        if let Some(target_rec) = self.nodes.get_mut(target.raw()) {
+            if !target_rec.incoming.contains(&edge_id) {
+                target_rec.incoming.push(edge_id);
+            }
+        }
+
+        // Update relationship type index
+        self.type_index
+            .entry(rel.rel_type.clone())
+            .or_default()
+            .insert(edge_id);
+
+        self.relationships.insert_exact(edge_id.raw(), rel);
 
         Ok(edge_id)
     }

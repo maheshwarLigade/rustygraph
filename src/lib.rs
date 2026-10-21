@@ -55,6 +55,7 @@
 //! ```
 
 pub mod algo;
+pub mod cluster;
 pub mod concurrent;
 pub mod cypher;
 pub mod error;
@@ -73,6 +74,10 @@ pub mod vector;
 /// Convenient re-exports of common types.
 pub mod prelude {
     pub use crate::algo;
+    pub use crate::cluster::{
+        ClusterCommand, ClusterMode, ClusterNode, ClusterNodeId, ClusterRole, LogEntry,
+        VirtualNetwork,
+    };
     pub use crate::concurrent::ConcurrentGraph;
     pub use crate::cypher::CypherResult;
     pub use crate::error::{GraphError, Result};

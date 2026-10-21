@@ -24,6 +24,15 @@ pub enum GraphError {
 
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
+
+    #[error("Quorum unavailable: {0}")]
+    QuorumUnavailable(String),
+
+    #[error("Not the leader. Current leader is {0:?}")]
+    NotLeader(Option<u64>),
+
+    #[error("Cluster error: {0}")]
+    ClusterError(String),
 }
 
 /// Convenience alias for `Result<T, GraphError>`.

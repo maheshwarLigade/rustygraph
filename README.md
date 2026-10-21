@@ -33,6 +33,10 @@ An ultra-fast, in-memory labeled property graph database library written in Rust
   - In-memory vector indexing with multiple similarity metrics: **Cosine Similarity**, **Euclidean Distance**, and **Dot Product**.
   - Dynamic dimension validation, top-$k$ nearest neighbor search, and automatic index synchronization upon node insertions, property updates, and deletions.
   - Native **GraphRAG** hybrid search (`vector_search_and_traverse`) combining semantic vector retrieval with relational knowledge graph expansion.
+- **Distributed Clustering & CAP Theorem Guarantees**:
+  - **Configurable CP Mode (Neo4j Causal Clustering)**: Strict majority quorum writes ($> N/2$), leader election, and automatic write rejection on minority partitions to strictly prevent split-brain.
+  - **Configurable AP Mode (High Availability)**: 100% write availability across all partitions with Lamport logical clocks and anti-entropy Last-Write-Wins (LWW) reconciliation upon healing.
+  - **Zero-Dependency Virtual Network**: In-memory network partition simulation (`network.partition(...)`, `network.isolate(...)`, `network.heal()`) for reproducible distributed testing.
 - **Concurrency & Persistence**:
   - `ConcurrentGraph` with `Arc<RwLock>` for multi-threaded reads/writes.
   - Full JSON export and import (`to_json` / `from_json`).
@@ -195,6 +199,43 @@ fn main() -> Result<()> {
 
 ---
 
+## 🌐 Distributed Cluster & CAP Theorem Guarantees
+
+`rusty_graph` provides built-in distributed clustering with configurable **CP** and **AP** modes backed by an in-memory virtual network simulation:
+
+```rust
+use rusty_graph::cluster::{ClusterCommand, ClusterMode, ClusterNode, VirtualNetwork};
+use rusty_graph::id::NodeId;
+use std::sync::Arc;
+use std::collections::HashMap;
+
+fn main() -> rusty_graph::Result<()> {
+    let network = Arc::new(VirtualNetwork::new());
+    let members = vec![1, 2, 3, 4, 5];
+
+    // 1. Create a 5-node CP cluster (Strict Quorum)
+    let mut n1 = ClusterNode::new(1, members.clone(), ClusterMode::CP, network.clone());
+    n1.campaign()?; // Node 1 elected Leader via quorum
+
+    // 2. Simulate network partition: minority {1, 2} vs majority {3, 4, 5}
+    network.partition(&[1, 2], &[3, 4, 5]);
+
+    // 3. Minority write attempt: REJECTED to strictly prevent split-brain!
+    let cmd = ClusterCommand::CreateNode {
+        id: NodeId(101),
+        labels: vec!["Account".to_string()],
+        properties: HashMap::new(),
+    };
+    assert!(n1.write(cmd).is_err()); // QuorumUnavailable!
+
+    // 4. Heal partition and reconcile
+    network.heal();
+    Ok(())
+}
+```
+
+---
+
 ## 🛠️ Running Tests and Examples
 
 Run all unit, integration, and doc tests:
@@ -212,6 +253,11 @@ Run the GraphRAG hybrid vector search demonstration:
 cargo run --example vector_graph_rag
 ```
 
+Run the CAP theorem distributed cluster demonstration:
+```bash
+cargo run --example cap_distributed_cluster
+```
+
 ---
 
 ## 🗺️ Roadmap & Phase Status
@@ -226,6 +272,7 @@ cargo run --example vector_graph_rag
 | **Phase 5+** | Native Cypher Query Engine (Lexer, Parser, AST Evaluator, Tabular ASCII Formatter) | ✅ Complete |
 | **Phase 6** | Persistence (JSON Export/Import) & Concurrency (`ConcurrentGraph`) | ✅ Complete |
 | **Phase 7** | Vector Database & GraphRAG (Vector Indexing, Cosine/Euclidean/Dot, Hybrid Search) | ✅ Complete |
+| **Phase 8** | Distributed Cluster & CAP Theorem (Configurable CP/AP Modes, Split-Brain Prevention, Virtual Network) | ✅ Complete |
 
 ---
 
