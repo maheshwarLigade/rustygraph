@@ -195,3 +195,87 @@ fn test_similarity_metrics() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_personalized_pagerank_behavior() -> Result<()> {
+    let mut graph = Graph::new();
+    let a = graph.create_node();
+    let b = graph.create_node();
+    let c = graph.create_node();
+    let d = graph.create_node();
+
+    // A -> B -> C -> D
+    graph.create_edge(a, b, "LINK")?;
+    graph.create_edge(b, c, "LINK")?;
+    graph.create_edge(c, d, "LINK")?;
+
+    // Standard PageRank vs Personalized PageRank seeded at A
+    let ppr_a = algo::personalized_pagerank(&graph, &[a], 0.85, 50, 1e-6);
+    assert_eq!(ppr_a.len(), 4);
+
+    // Sum of probabilities must sum to ~1.0
+    let total_mass: f64 = ppr_a.values().sum();
+    assert!((total_mass - 1.0).abs() < 1e-4);
+
+    // Seed node A receives 15% teleport mass on every step, so A has higher rank than with seeds at D
+    let ppr_d = algo::personalized_pagerank(&graph, &[d], 0.85, 50, 1e-6);
+    assert!(ppr_a[&a] > ppr_d[&a]);
+    assert!(ppr_d[&d] > ppr_a[&d]);
+
+    Ok(())
+}
+
+#[test]
+fn test_betweenness_centrality_bridge_detection() -> Result<()> {
+    let mut graph = Graph::new();
+    // Kite graph or barbell bridge:
+    // Cluster 1: (c1a, c1b) connected to bridge B
+    // Cluster 2: (c2a, c2b) connected to bridge B
+    // c1a --- B --- c2a
+    //  |      |      |
+    // c1b ----+---- c2b
+    let c1a = graph.create_node();
+    let c1b = graph.create_node();
+    let bridge = graph.create_node();
+    let c2a = graph.create_node();
+    let c2b = graph.create_node();
+
+    // Edges inside cluster 1
+    graph.create_edge(c1a, c1b, "EDGE")?;
+    graph.create_edge(c1b, c1a, "EDGE")?;
+
+    // Cluster 1 to bridge
+    graph.create_edge(c1a, bridge, "EDGE")?;
+    graph.create_edge(bridge, c1a, "EDGE")?;
+    graph.create_edge(c1b, bridge, "EDGE")?;
+    graph.create_edge(bridge, c1b, "EDGE")?;
+
+    // Bridge to cluster 2
+    graph.create_edge(bridge, c2a, "EDGE")?;
+    graph.create_edge(c2a, bridge, "EDGE")?;
+    graph.create_edge(bridge, c2b, "EDGE")?;
+    graph.create_edge(c2b, bridge, "EDGE")?;
+
+    // Edges inside cluster 2
+    graph.create_edge(c2a, c2b, "EDGE")?;
+    graph.create_edge(c2b, c2a, "EDGE")?;
+
+    let bc = algo::betweenness_centrality(&graph, Direction::Both, false);
+    assert_eq!(bc.len(), 5);
+
+    // The bridge node connects the two 2-node clusters; all paths between cluster 1 and 2
+    // must pass through `bridge`, giving it the highest betweenness score in the graph!
+    let bridge_score = bc[&bridge];
+    assert!(bridge_score > bc[&c1a]);
+    assert!(bridge_score > bc[&c1b]);
+    assert!(bridge_score > bc[&c2a]);
+    assert!(bridge_score > bc[&c2b]);
+
+    // Test normalized betweenness
+    let bc_norm = algo::betweenness_centrality(&graph, Direction::Both, true);
+    assert!(bc_norm[&bridge] > 0.0);
+    assert!(bc_norm[&bridge] <= 1.0);
+
+    Ok(())
+}
+

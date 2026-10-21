@@ -401,6 +401,7 @@ pub const STUDIO_HTML: &str = r##"<!DOCTYPE html>
                 <option value="match_params">Parameterized MATCH ($role, $min_xp)</option>
                 <option value="var_len_path">Variable-Length Path (*1..3)</option>
                 <option value="aggregations">Aggregation (collect & count)</option>
+                <option value="merge_upsert">MERGE Upsert (Atomic)</option>
               </select>
             </div>
             <textarea id="cypher-input" class="code-input" rows="5" placeholder="MATCH (n) RETURN n LIMIT 25">MATCH (n) RETURN n LIMIT 25</textarea>
@@ -565,7 +566,11 @@ RETURN a, b, rg`,
       match_all: `MATCH (n) RETURN n LIMIT 25`,
       match_params: `MATCH (n:Person) WHERE n.role = $role AND n.xp >= $min_xp RETURN n`,
       var_len_path: `MATCH (a:Person {name: "Alice"})-[*1..3]->(target) RETURN DISTINCT target`,
-      aggregations: `MATCH (p:Person)-[:CONTRIBUTES_TO]->(d:Database) RETURN d.name, count(p) as contributor_count, collect(p.name) as contributors`
+      aggregations: `MATCH (p:Person)-[:CONTRIBUTES_TO]->(d:Database) RETURN d.name, count(p) as contributor_count, collect(p.name) as contributors`,
+      merge_upsert: `MERGE (u:Person {name: "Charlie", role: "Systems Engineer"})
+ON CREATE SET u.joined = 2026, u.visits = 1
+ON MATCH SET u.visits = 2
+RETURN u.name, u.role, u.visits`
     };
 
     function loadSampleQuery(key) {

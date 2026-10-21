@@ -3,6 +3,8 @@
 pub enum Token {
     Match,
     Create,
+    Merge,
+    On,
     Set,
     Delete,
     Detach,

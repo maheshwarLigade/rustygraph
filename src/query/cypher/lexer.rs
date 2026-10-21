@@ -184,6 +184,8 @@ impl<'a> Lexer<'a> {
                     match ident.to_uppercase().as_str() {
                         "MATCH" => tokens.push(Token::Match),
                         "CREATE" => tokens.push(Token::Create),
+                        "MERGE" => tokens.push(Token::Merge),
+                        "ON" => tokens.push(Token::On),
                         "SET" => tokens.push(Token::Set),
                         "DELETE" => tokens.push(Token::Delete),
                         "DETACH" => tokens.push(Token::Detach),

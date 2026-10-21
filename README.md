@@ -22,12 +22,13 @@ An ultra-fast, in-memory labeled property graph database library written in Rust
   - Breadth-First (BFS) and Depth-First (DFS) traversals with depth bounds (`min_depth..max_depth`), relationship filtering, and cycle handling (`NodeUnique`, `RelationshipUnique`, `AllPaths`).
 - **Graph Data Science (GDS) Algorithms**:
   - **Pathfinding**: BFS Unweighted Shortest Path, Dijkstra Weighted Shortest Path, and A* algorithm.
-  - **Centrality**: Degree Centrality and iterative power-method PageRank.
+  - **Centrality**: Degree Centrality, iterative power-method PageRank, **Personalized PageRank (Random Walk with Restart)**, and **Betweenness Centrality (Brandes' Algorithm $O(V \cdot E)$)**.
   - **Community Detection**: Weakly Connected Components (WCC via Disjoint-Set / Union-Find) and Strongly Connected Components (SCC via Tarjan's algorithm).
   - **Topological Analysis**: DAG validation & Kahn's Topological Sort.
   - **Similarity**: Jaccard similarity coefficient and common neighbor identification.
 - **Declarative Pattern Matching & Cypher Query Engine**:
   - Native Cypher query string parser, lexer, AST evaluation (`graph.cypher(...)`), and tabular ASCII result printer.
+  - **Atomic Upsert `MERGE` Clause**: Idempotently matches existing entities or creates new ones, executing conditional `ON CREATE SET` or `ON MATCH SET` blocks.
   - **Variable-Length Path Expansion**: Multi-hop pattern matching syntax `*`, `*3`, `*1..3`, and `*..5` executed via high-performance breadth-first search.
   - **List Aggregations & DISTINCT Projections**: Flexible columnar deduplication (`RETURN DISTINCT ...`), `collect(n.prop)`, and `count(DISTINCT n.prop)`.
   - **Query Plan Caching**: Thread-safe LRU AST precompilation cache (`QueryPlanCache`) avoiding repeated lexing and parsing on hot queries.

@@ -104,11 +104,20 @@ pub struct OrderByClause {
     pub descending: bool,
 }
 
+/// A MERGE clause pattern with optional ON CREATE SET and ON MATCH SET actions.
+#[derive(Debug, Clone)]
+pub struct ParsedMerge {
+    pub pattern: (Vec<ParsedNode>, Vec<ParsedRel>),
+    pub on_create_set: Vec<SetClause>,
+    pub on_match_set: Vec<SetClause>,
+}
+
 /// The complete Abstract Syntax Tree of a parsed Cypher query.
 #[derive(Debug, Clone)]
 pub struct AstQuery {
     pub matches: Vec<(Vec<ParsedNode>, Vec<ParsedRel>)>,
     pub creates: Vec<(Vec<ParsedNode>, Vec<ParsedRel>)>,
+    pub merges: Vec<ParsedMerge>,
     pub where_clauses: Vec<WhereClause>,
     pub set_clauses: Vec<SetClause>,
     pub delete_clauses: Vec<DeleteClause>,
@@ -119,8 +128,8 @@ pub struct AstQuery {
 }
 
 impl AstQuery {
-    /// Returns true if this AST contains any mutation clauses (CREATE, SET, DELETE, DETACH).
+    /// Returns true if this AST contains any mutation clauses (CREATE, MERGE, SET, DELETE, DETACH).
     pub fn is_mutation(&self) -> bool {
-        !self.creates.is_empty() || !self.set_clauses.is_empty() || !self.delete_clauses.is_empty()
+        !self.creates.is_empty() || !self.merges.is_empty() || !self.set_clauses.is_empty() || !self.delete_clauses.is_empty()
     }
 }

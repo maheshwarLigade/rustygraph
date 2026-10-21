@@ -692,6 +692,12 @@ impl Graph {
         Ok(rel)
     }
 
+    /// Alias for edge_count matching Neo4j terminology.
+    #[inline]
+    pub fn relationship_count(&self) -> usize {
+        self.edge_count()
+    }
+
     // =========================================================================
     // Graph Query, Traversal & Adjacency Operations
     // =========================================================================

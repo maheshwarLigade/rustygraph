@@ -457,6 +457,11 @@ public class App {
                 <td>Creates nodes and directed edges atomically in memory and persists to WAL.</td>
               </tr>
               <tr>
+                <td><code>MERGE</code></td>
+                <td><code>MERGE (u:User {email: 'alice@example.com'}) ON CREATE SET u.created = 1 ON MATCH SET u.logins = 2</code></td>
+                <td>Atomic upsert: matches existing graph entities or creates new ones, executing conditional ON CREATE or ON MATCH SET blocks.</td>
+              </tr>
+              <tr>
                 <td><code>SET</code></td>
                 <td><code>MATCH (p:Person {name: 'Alice'}) SET p.age = 31</code></td>
                 <td>Mutates properties on all matched node entities.</td>
@@ -626,6 +631,18 @@ assert_eq!(committed_view.rows.len(), 2);</code></pre>
             <div class="feature-icon">🧩</div>
             <h4>Topological Sorting & Jaccard</h4>
             <p>Kahn's DAG topological order validation and Jaccard similarity coefficient for entity recommendation.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🎯</div>
+            <h4>Personalized PageRank (PPR)</h4>
+            <p>Random Walk with Restart (RWR) relative to seed nodes for tailored recommendation feeds and localized context discovery.</p>
+          </div>
+
+          <div class="feature-card rust">
+            <div class="feature-icon">🌉</div>
+            <h4>Betweenness Centrality (Brandes)</h4>
+            <p>Canonical $O(V \cdot E)$ Brandes' algorithm identifying structural bridges, bottlenecks, and critical network connectors.</p>
           </div>
         </div>
       </section>

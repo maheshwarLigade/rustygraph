@@ -195,3 +195,53 @@ fn test_cypher_collect_and_distinct() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn test_cypher_merge_and_upsert() -> Result<()> {
+    let mut graph = Graph::new();
+
+    // 1. First MERGE creates the node and triggers ON CREATE SET
+    let r1 = graph.cypher(
+        "MERGE (u:User {email: 'alice@example.com'}) \
+         ON CREATE SET u.created = 1, u.logins = 1 \
+         RETURN u.email, u.created, u.logins"
+    )?;
+    assert_eq!(r1.len(), 1);
+    assert_eq!(r1.rows[0][0], PropertyValue::from("alice@example.com"));
+    assert_eq!(r1.rows[0][1], PropertyValue::from(1));
+    assert_eq!(r1.rows[0][2], PropertyValue::from(1));
+    assert_eq!(graph.node_count(), 1);
+
+    // 2. Second MERGE matches existing node and triggers ON MATCH SET
+    let r2 = graph.cypher(
+        "MERGE (u:User {email: 'alice@example.com'}) \
+         ON MATCH SET u.logins = 2 \
+         RETURN u.email, u.logins"
+    )?;
+    assert_eq!(r2.len(), 1);
+    assert_eq!(r2.rows[0][0], PropertyValue::from("alice@example.com"));
+    assert_eq!(r2.rows[0][1], PropertyValue::from(2));
+    // Verify node count has NOT increased
+    assert_eq!(graph.node_count(), 1);
+
+    // 3. MERGE with relationship
+    let r3 = graph.cypher(
+        "MERGE (a:User {email: 'alice@example.com'})-[r:FOLLOWS]->(b:User {email: 'bob@example.com'}) \
+         RETURN a.email, b.email"
+    )?;
+    assert_eq!(r3.len(), 1);
+    assert_eq!(graph.node_count(), 2);
+    assert_eq!(graph.relationship_count(), 1);
+
+    // 4. Repeating the relationship MERGE does not create duplicate edges or nodes
+    let r4 = graph.cypher(
+        "MERGE (a:User {email: 'alice@example.com'})-[r:FOLLOWS]->(b:User {email: 'bob@example.com'}) \
+         RETURN a.email, b.email"
+    )?;
+    assert_eq!(r4.len(), 1);
+    assert_eq!(graph.node_count(), 2);
+    assert_eq!(graph.relationship_count(), 1);
+
+    Ok(())
+}
+
+

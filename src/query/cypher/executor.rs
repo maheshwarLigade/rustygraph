@@ -18,8 +18,9 @@ pub fn execute_ast_with_params(
     ast: AstQuery,
     params: &HashMap<String, PropertyValue>,
 ) -> Result<CypherResult> {
-    // Keep track of aliases created or matched to node IDs
+    // Keep track of aliases created or matched to node and relationship IDs
     let mut alias_node_map: HashMap<String, NodeId> = HashMap::new();
+    let mut alias_edge_map: HashMap<String, crate::id::RelId> = HashMap::new();
 
     // 1. Handle standalone or pre-match CREATE patterns
     for (nodes, rels) in &ast.creates {
@@ -53,127 +54,191 @@ pub fn execute_ast_with_params(
                 resolved_rel_props.push((k.clone(), v.resolve(params)?));
             }
 
-            graph.create_edge_with(src, dst, rel_type, |edge| {
+            let edge_id = graph.create_edge_with(src, dst, rel_type, |edge| {
                 for (k, val) in resolved_rel_props {
                     edge.set_prop(k, val);
                 }
             })?;
-        }
-    }
-
-    // If purely a CREATE query with no MATCH and no RETURN
-    if ast.matches.is_empty() && ast.returns.is_empty() {
-        let columns = vec!["result".to_string()];
-        let rows = vec![vec![PropertyValue::String(format!(
-            "Created {} nodes",
-            alias_node_map.len()
-        ))]];
-        return Ok(CypherResult::new(columns, rows));
-    }
-
-    // If CREATE with RETURN
-    if ast.matches.is_empty() && !ast.returns.is_empty() {
-        let columns: Vec<String> = ast.returns.iter().map(|r| r.output_name.clone()).collect();
-        let mut row = Vec::new();
-        for item in &ast.returns {
-            match &item.kind {
-                ReturnKind::Property(alias, prop) => {
-                    let val = alias_node_map
-                        .get(alias)
-                        .and_then(|id| graph.get_node_property(*id, prop))
-                        .cloned()
-                        .unwrap_or(PropertyValue::Null);
-                    row.push(val);
-                }
-                ReturnKind::Node(alias) => {
-                    if let Some(id) = alias_node_map.get(alias) {
-                        if let Some(node) = graph.get_node(*id) {
-                            let mut map = BTreeMap::new();
-                            map.insert("id".to_string(), PropertyValue::Int(node.id.raw() as i64));
-                            for (k, v) in node.properties.iter() {
-                                map.insert(k.clone(), v.clone());
-                            }
-                            row.push(PropertyValue::Map(map));
-                        } else {
-                            row.push(PropertyValue::Null);
-                        }
-                    } else {
-                        row.push(PropertyValue::Null);
-                    }
-                }
-                ReturnKind::CountStar | ReturnKind::Count(_, _, _) => {
-                    row.push(PropertyValue::Int(alias_node_map.len() as i64));
-                }
-                _ => row.push(PropertyValue::Null),
+            if let Some(ref alias) = rel.alias {
+                alias_edge_map.insert(alias.clone(), edge_id);
             }
         }
-        return Ok(CypherResult::new(columns, vec![row]));
     }
 
-    // 2. Process MATCH queries
-    let (pattern_nodes, pattern_rels) = &ast.matches[0];
-    let mut builder = graph.query();
+    // 1b. Handle MERGE patterns (atomic upsert)
+    for merge in &ast.merges {
+        let (pattern_nodes, pattern_rels) = &merge.pattern;
+        let mut pattern_node_ids = Vec::new();
+        let mut is_newly_created = false;
 
-    if let Some(first_node) = pattern_nodes.first() {
-        builder = builder.match_node(&first_node.alias);
-        if let Some(lbl) = &first_node.label {
-            builder = builder.with_label(lbl);
-        }
-        for (k, v) in &first_node.props {
-            let val = v.resolve(params)?;
-            builder = builder.with_prop(k, val);
-        }
-    }
+        for n in pattern_nodes {
+            let mut resolved_props = Vec::with_capacity(n.props.len());
+            for (k, v) in &n.props {
+                resolved_props.push((k.clone(), v.resolve(params)?));
+            }
 
-    for (i, rel) in pattern_rels.iter().enumerate() {
-        let target_node = &pattern_nodes[i + 1];
-        builder = builder.rel_hops(
-            rel.alias.clone(),
-            rel.rel_type.clone(),
-            rel.direction,
-            rel.hops,
-            target_node.alias.clone(),
-        );
-        if let Some(lbl) = &target_node.label {
-            builder = builder.with_label(lbl);
-        }
-        for (k, v) in &target_node.props {
-            let val = v.resolve(params)?;
-            builder = builder.with_prop(k, val);
-        }
-    }
-
-    // Apply WHERE clauses with resolved parameters
-    for w in ast.where_clauses {
-        let alias = w.alias.clone();
-        let prop = w.prop.clone();
-        let op = w.op.clone();
-        let expected_val = w.val.resolve(params)?;
-
-        builder = builder.filter(move |ctx| {
-            if let Some(actual) = ctx.prop(&alias, &prop) {
-                match op {
-                    CompOp::Eq => actual == &expected_val,
-                    CompOp::Neq => actual != &expected_val,
-                    CompOp::Lt => actual < &expected_val,
-                    CompOp::Lte => actual <= &expected_val,
-                    CompOp::Gt => actual > &expected_val,
-                    CompOp::Gte => actual >= &expected_val,
-                }
+            let existing_id = if let Some(&id) = alias_node_map.get(&n.alias) {
+                Some(id)
             } else {
-                false
+                let candidates: Vec<NodeId> = if let Some(lbl) = &n.label {
+                    graph.nodes_with_label(lbl)
+                } else {
+                    graph.nodes().map(|node| node.id).collect()
+                };
+
+                candidates.into_iter().find(|&id| {
+                    if let Some(node) = graph.get_node(id) {
+                        resolved_props.iter().all(|(k, expected)| {
+                            node.properties.get(k) == Some(expected)
+                        })
+                    } else {
+                        false
+                    }
+                })
+            };
+
+            let node_id = match existing_id {
+                Some(id) => id,
+                None => {
+                    is_newly_created = true;
+                    graph.create_node_with(|node| {
+                        if let Some(lbl) = &n.label {
+                            node.add_label(lbl);
+                        }
+                        for (k, val) in &resolved_props {
+                            node.set_prop(k, val.clone());
+                        }
+                    })?
+                }
+            };
+
+            if !n.alias.is_empty() {
+                alias_node_map.insert(n.alias.clone(), node_id);
             }
-        });
+            pattern_node_ids.push(node_id);
+        }
+
+        for (i, rel) in pattern_rels.iter().enumerate() {
+            let src = pattern_node_ids[i];
+            let dst = pattern_node_ids[i + 1];
+            let rel_type = rel.rel_type.as_deref().unwrap_or("RELATED");
+            let mut resolved_rel_props = Vec::with_capacity(rel.props.len());
+            for (k, v) in &rel.props {
+                resolved_rel_props.push((k.clone(), v.resolve(params)?));
+            }
+
+            let existing_edge = graph.incident_edges(src, Direction::Outgoing).ok().and_then(|edges| {
+                edges.into_iter().find(|e| {
+                    e.target == dst
+                        && (rel.rel_type.is_none() || e.rel_type == rel_type)
+                        && resolved_rel_props.iter().all(|(k, expected)| {
+                            e.properties.get(k) == Some(expected)
+                        })
+                })
+            });
+
+            let edge_id = match existing_edge {
+                Some(e) => e.id,
+                None => {
+                    is_newly_created = true;
+                    graph.create_edge_with(src, dst, rel_type, |edge| {
+                        for (k, val) in resolved_rel_props {
+                            edge.set_prop(k, val);
+                        }
+                    })?
+                }
+            };
+
+            if let Some(ref alias) = rel.alias {
+                alias_edge_map.insert(alias.clone(), edge_id);
+            }
+        }
+
+        let set_targets = if is_newly_created {
+            &merge.on_create_set
+        } else {
+            &merge.on_match_set
+        };
+
+        for s in set_targets {
+            if let Some(&node_id) = alias_node_map.get(&s.alias) {
+                let val = s.val.resolve(params)?;
+                let _ = graph.set_node_property(node_id, &s.prop, val);
+            }
+        }
     }
 
-    let bindings: Vec<MatchBinding> = builder
-        .execute()
-        .into_iter()
-        .map(|ctx| MatchBinding {
-            nodes: ctx.node_bindings().clone(),
-            edges: ctx.edge_bindings().clone(),
-        })
-        .collect();
+    // 2. Process MATCH queries or construct bindings from created/merged aliases
+    let bindings: Vec<MatchBinding> = if !ast.matches.is_empty() {
+        let (pattern_nodes, pattern_rels) = &ast.matches[0];
+        let mut builder = graph.query();
+
+        if let Some(first_node) = pattern_nodes.first() {
+            builder = builder.match_node(&first_node.alias);
+            if let Some(lbl) = &first_node.label {
+                builder = builder.with_label(lbl);
+            }
+            for (k, v) in &first_node.props {
+                let val = v.resolve(params)?;
+                builder = builder.with_prop(k, val);
+            }
+        }
+
+        for (i, rel) in pattern_rels.iter().enumerate() {
+            let target_node = &pattern_nodes[i + 1];
+            builder = builder.rel_hops(
+                rel.alias.clone(),
+                rel.rel_type.clone(),
+                rel.direction,
+                rel.hops,
+                target_node.alias.clone(),
+            );
+            if let Some(lbl) = &target_node.label {
+                builder = builder.with_label(lbl);
+            }
+            for (k, v) in &target_node.props {
+                let val = v.resolve(params)?;
+                builder = builder.with_prop(k, val);
+            }
+        }
+
+        // Apply WHERE clauses with resolved parameters
+        for w in ast.where_clauses {
+            let alias = w.alias.clone();
+            let prop = w.prop.clone();
+            let op = w.op.clone();
+            let expected_val = w.val.resolve(params)?;
+
+            builder = builder.filter(move |ctx| {
+                if let Some(actual) = ctx.prop(&alias, &prop) {
+                    match op {
+                        CompOp::Eq => actual == &expected_val,
+                        CompOp::Neq => actual != &expected_val,
+                        CompOp::Lt => actual < &expected_val,
+                        CompOp::Lte => actual <= &expected_val,
+                        CompOp::Gt => actual > &expected_val,
+                        CompOp::Gte => actual >= &expected_val,
+                    }
+                } else {
+                    false
+                }
+            });
+        }
+
+        builder
+            .execute()
+            .into_iter()
+            .map(|ctx| MatchBinding {
+                nodes: ctx.node_bindings().clone(),
+                edges: ctx.edge_bindings().clone(),
+            })
+            .collect()
+    } else {
+        vec![MatchBinding {
+            nodes: alias_node_map.clone(),
+            edges: alias_edge_map.clone(),
+        }]
+    };
 
     // 3. Process SET clauses on matched entities with resolved parameters
     if !ast.set_clauses.is_empty() {
@@ -214,12 +279,13 @@ pub fn execute_ast_with_params(
         }
     }
 
-    // If query was purely a mutation (SET/DELETE) without RETURN
+    // If query was purely a mutation (CREATE/MERGE/SET/DELETE) without RETURN
     if ast.returns.is_empty() {
+        let count = alias_node_map.len().max(bindings.len());
         let columns = vec!["result".to_string()];
         let rows = vec![vec![PropertyValue::String(format!(
-            "Matched and modified {} entities",
-            bindings.len()
+            "Applied mutations across {} entities",
+            count
         ))]];
         return Ok(CypherResult::new(columns, rows));
     }

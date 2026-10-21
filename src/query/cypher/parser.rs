@@ -1,5 +1,5 @@
 use super::ast::{
-    AstQuery, CompOp, DeleteClause, OrderByClause, ParsedNode, ParsedRel, QueryValue, ReturnItem, ReturnKind,
+    AstQuery, CompOp, DeleteClause, OrderByClause, ParsedMerge, ParsedNode, ParsedRel, QueryValue, ReturnItem, ReturnKind,
     SetClause, WhereClause,
 };
 use super::token::Token;
@@ -208,9 +208,45 @@ impl Parser {
         Ok((nodes, rels))
     }
 
+    fn parse_set_items(&mut self) -> Result<Vec<SetClause>> {
+        let mut clauses = Vec::new();
+        loop {
+            let alias = if let Some(Token::Ident(a)) = self.next() {
+                a
+            } else {
+                return Err(GraphError::InvalidOperation("Expected alias in SET clause".into()));
+            };
+            self.expect(Token::Dot)?;
+            let mut prop = if let Some(Token::Ident(p)) = self.next() {
+                p
+            } else {
+                return Err(GraphError::InvalidOperation("Expected property in SET clause".into()));
+            };
+            while self.peek() == Some(&Token::Dot) {
+                self.next();
+                if let Some(Token::Ident(sub)) = self.next() {
+                    prop.push('.');
+                    prop.push_str(&sub);
+                } else {
+                    return Err(GraphError::InvalidOperation("Expected property segment after dot in SET".into()));
+                }
+            }
+            self.expect(Token::Eq)?;
+            let val = self.parse_value()?;
+            clauses.push(SetClause { alias, prop, val });
+            if self.peek() == Some(&Token::Comma) {
+                self.next();
+            } else {
+                break;
+            }
+        }
+        Ok(clauses)
+    }
+
     pub fn parse_query(&mut self) -> Result<AstQuery> {
         let mut matches = Vec::new();
         let mut creates = Vec::new();
+        let mut merges = Vec::new();
         let mut where_clauses = Vec::new();
         let mut set_clauses = Vec::new();
         let mut delete_clauses = Vec::new();
@@ -278,38 +314,39 @@ impl Parser {
                         }
                     }
                 }
-                Token::Set => {
+                Token::Merge => {
                     self.next();
-                    loop {
-                        let alias = if let Some(Token::Ident(a)) = self.next() {
-                            a
-                        } else {
-                            return Err(GraphError::InvalidOperation("Expected alias in SET clause".into()));
-                        };
-                        self.expect(Token::Dot)?;
-                        let mut prop = if let Some(Token::Ident(p)) = self.next() {
-                            p
-                        } else {
-                            return Err(GraphError::InvalidOperation("Expected property in SET clause".into()));
-                        };
-                        while self.peek() == Some(&Token::Dot) {
-                            self.next();
-                            if let Some(Token::Ident(sub)) = self.next() {
-                                prop.push('.');
-                                prop.push_str(&sub);
-                            } else {
-                                return Err(GraphError::InvalidOperation("Expected property segment after dot in SET".into()));
+                    let pattern = self.parse_pattern()?;
+                    let mut on_create_set = Vec::new();
+                    let mut on_match_set = Vec::new();
+                    while self.peek() == Some(&Token::On) {
+                        self.next();
+                        match self.next() {
+                            Some(Token::Create) => {
+                                self.expect(Token::Set)?;
+                                on_create_set.extend(self.parse_set_items()?);
+                            }
+                            Some(Token::Match) => {
+                                self.expect(Token::Set)?;
+                                on_match_set.extend(self.parse_set_items()?);
+                            }
+                            other => {
+                                return Err(GraphError::InvalidOperation(format!(
+                                    "Expected CREATE or MATCH after ON in MERGE clause, found {other:?}"
+                                )));
                             }
                         }
-                        self.expect(Token::Eq)?;
-                        let val = self.parse_value()?;
-                        set_clauses.push(SetClause { alias, prop, val });
-                        if self.peek() == Some(&Token::Comma) {
-                            self.next();
-                        } else {
-                            break;
-                        }
                     }
+                    merges.push(ParsedMerge {
+                        pattern,
+                        on_create_set,
+                        on_match_set,
+                    });
+                }
+                Token::Set => {
+                    self.next();
+                    let items = self.parse_set_items()?;
+                    set_clauses.extend(items);
                 }
                 Token::Delete => {
                     self.next();
@@ -409,15 +446,16 @@ impl Parser {
             }
         }
 
-        if matches.is_empty() && creates.is_empty() && returns.is_empty() {
+        if matches.is_empty() && creates.is_empty() && merges.is_empty() && returns.is_empty() {
             return Err(GraphError::InvalidOperation(
-                "Cypher query must contain at least a MATCH, CREATE, or RETURN clause".into(),
+                "Cypher query must contain at least a MATCH, CREATE, MERGE, or RETURN clause".into(),
             ));
         }
 
         Ok(AstQuery {
             matches,
             creates,
+            merges,
             where_clauses,
             set_clauses,
             delete_clauses,
