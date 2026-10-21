@@ -59,6 +59,7 @@ pub mod cluster;
 pub mod concurrent;
 pub mod cypher;
 pub mod error;
+pub mod ffi;
 pub mod graph;
 pub mod id;
 pub mod index;

@@ -236,6 +236,83 @@ fn main() -> rusty_graph::Result<()> {
 
 ---
 
+## 🐹 Go Language SDK
+
+`rusty_graph` provides an idiomatic, high-performance Go SDK in `bindings/go/rustygraph`:
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/mahesh/rusty-graph/bindings/go/rustygraph"
+)
+
+func main() {
+	graph, err := rustygraph.New()
+	if err != nil {
+		panic(err)
+	}
+	defer graph.Close()
+
+	// Create nodes with labels & properties
+	aliceID, _ := graph.CreateNode([]string{"Person"}, map[string]interface{}{"name": "Alice", "age": 30})
+	bobID, _ := graph.CreateNode([]string{"Person"}, map[string]interface{}{"name": "Bob", "age": 28})
+	graph.CreateEdge(aliceID, bobID, "KNOWS", map[string]interface{}{"since": 2021})
+
+	// Run Cypher query directly in Go
+	res, err := graph.Cypher("MATCH (p:Person)-[:KNOWS]->(f:Person) RETURN p.name, f.name")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Columns: %v\n", res.Columns)
+	fmt.Printf("Rows: %v\n", res.Rows) // Output: [[Alice Bob]]
+}
+```
+
+Run Go unit tests:
+```bash
+cd bindings/go/rustygraph && go test -v .
+```
+
+---
+
+## ☕ Java Language SDK (Java 21 FFM)
+
+`rusty_graph` provides an official Java 21 SDK in `bindings/java` powered by Java's Foreign Function & Memory (FFM) API:
+
+```java
+import com.rustygraph.RustyGraph;
+import com.rustygraph.CypherResult;
+import java.util.List;
+import java.util.Map;
+
+public class Main {
+    public static void main(String[] args) {
+        try (RustyGraph graph = RustyGraph.create()) {
+            // Create nodes and relationships
+            long alice = graph.createNode(List.of("Person"), Map.of("name", "Alice", "age", 30));
+            long bob = graph.createNode(List.of("Person"), Map.of("name", "Bob", "age", 28));
+            graph.createEdge(alice, bob, "KNOWS", Map.of("since", 2021));
+
+            // Execute Cypher queries natively from Java
+            CypherResult res = graph.cypher("MATCH (p:Person)-[:KNOWS]->(f:Person) RETURN p.name, f.name");
+            System.out.println("Columns: " + res.columns());
+            System.out.println("Rows: " + res.rows());
+        }
+    }
+}
+```
+
+Run Java SDK test suite:
+```bash
+javac --enable-preview --release 21 -d target/classes bindings/java/src/main/java/com/rustygraph/*.java bindings/java/src/test/java/com/rustygraph/*.java
+java --enable-preview -cp target/classes com.rustygraph.RustyGraphTest
+```
+
+---
+
 ## 🛠️ Running Tests and Examples
 
 Run all unit, integration, and doc tests:
@@ -273,6 +350,7 @@ cargo run --example cap_distributed_cluster
 | **Phase 6** | Persistence (JSON Export/Import) & Concurrency (`ConcurrentGraph`) | ✅ Complete |
 | **Phase 7** | Vector Database & GraphRAG (Vector Indexing, Cosine/Euclidean/Dot, Hybrid Search) | ✅ Complete |
 | **Phase 8** | Distributed Cluster & CAP Theorem (Configurable CP/AP Modes, Split-Brain Prevention, Virtual Network) | ✅ Complete |
+| **Phase 9** | Multi-Language SDKs & C FFI (Native Go SDK via dynamic linking & Java 21 SDK via FFM) | ✅ Complete |
 
 ---
 
