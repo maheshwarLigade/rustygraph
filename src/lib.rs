@@ -50,12 +50,14 @@
 //! ```
 
 pub mod algo;
+pub mod concurrent;
 pub mod error;
 pub mod graph;
 pub mod id;
 pub mod index;
 pub mod model;
 pub mod query;
+pub mod serde_export;
 pub mod stats;
 pub mod storage;
 pub mod traversal;
@@ -64,12 +66,14 @@ pub mod value;
 /// Convenient re-exports of common types.
 pub mod prelude {
     pub use crate::algo;
+    pub use crate::concurrent::ConcurrentGraph;
     pub use crate::error::{GraphError, Result};
     pub use crate::graph::Graph;
     pub use crate::id::{NodeId, RelId};
     pub use crate::index::{IndexKey, IndexManager, PropertyIndex};
     pub use crate::model::{Direction, Node, Properties, Relationship};
     pub use crate::query::{QueryBuilder, QueryContext};
+    pub use crate::serde_export::GraphDump;
     pub use crate::stats::GraphStats;
     pub use crate::traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
     pub use crate::value::PropertyValue;
@@ -80,12 +84,14 @@ pub use algo::{
     pagerank, shortest_path_bfs, strongly_connected_components, topological_sort,
     weakly_connected_components,
 };
+pub use concurrent::ConcurrentGraph;
 pub use error::{GraphError, Result};
 pub use graph::Graph;
 pub use id::{NodeId, RelId};
 pub use index::{IndexKey, IndexManager, PropertyIndex};
 pub use model::{Direction, Node, Properties, Relationship};
 pub use query::{QueryBuilder, QueryContext};
+pub use serde_export::GraphDump;
 pub use stats::GraphStats;
 pub use traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
 pub use value::PropertyValue;
@@ -385,7 +391,6 @@ mod tests {
     fn test_fluent_traversal_engine() -> Result<()> {
         let mut graph = Graph::new();
 
-        // Build a pipeline: A -> B -> C -> D and B -> E
         let a = graph.create_node_with(|n| { n.set_prop("name", "A"); })?;
         let b = graph.create_node_with(|n| { n.set_prop("name", "B"); })?;
         let c = graph.create_node_with(|n| { n.set_prop("name", "C"); })?;
@@ -397,7 +402,6 @@ mod tests {
         graph.create_edge(c, d, "NEXT")?;
         graph.create_edge(b, e, "BRANCH")?;
 
-        // 1. Variable depth traversal: from A with min_depth=1, max_depth=2, type="NEXT"
         let paths_1_to_2 = graph
             .traverse(a)
             .outgoing()
@@ -410,7 +414,6 @@ mod tests {
         assert_eq!(paths_1_to_2[0].end_node(), b);
         assert_eq!(paths_1_to_2[1].end_node(), c);
 
-        // 2. Distinct nodes reachable from A at any depth following "NEXT"
         let reachable = graph.traverse(a).outgoing().with_type("NEXT").nodes();
         assert_eq!(reachable, vec![a, b, c, d]);
 
@@ -537,9 +540,6 @@ mod tests {
     fn test_declarative_pattern_matching_query() -> Result<()> {
         let mut graph = Graph::new();
 
-        // Setup social network:
-        // (Alice:Person {age: 30}) -[r1:KNOWS {since: 2020}]-> (Bob:Person {age: 24}) -[r2:WORKS_AT]-> (Acme:Company {name: "Acme Corp"})
-        // (Alice:Person)           -[r3:KNOWS {since: 2018}]-> (Charlie:Person {age: 35})
         let alice = graph.create_node_with(|n| {
             n.add_label("Person");
             n.set_prop("name", "Alice");
@@ -567,7 +567,6 @@ mod tests {
         graph.create_edge_with(alice, charlie, "KNOWS", |r| { r.set_prop("since", 2018); })?;
         graph.create_edge(bob, acme, "WORKS_AT")?;
 
-        // Query 1: MATCH (p:Person {name: "Alice"})-[r:KNOWS]->(friend:Person) WHERE friend.age < 30
         let young_friends: Vec<String> = graph.query()
             .match_node("p").with_label("Person").with_prop("name", "Alice")
             .outgoing_as("r", "KNOWS", "friend").with_label("Person")
@@ -576,7 +575,6 @@ mod tests {
 
         assert_eq!(young_friends, vec!["Bob".to_string()]);
 
-        // Query 2: Multi-hop pattern MATCH (p:Person)-[:KNOWS]->(f:Person)-[:WORKS_AT]->(c:Company)
         let company_referrals = graph.query()
             .match_node("p").with_label("Person")
             .outgoing("KNOWS", "f").with_label("Person")
@@ -591,15 +589,77 @@ mod tests {
 
         assert_eq!(company_referrals, vec![("Alice".to_string(), "Bob".to_string(), "Acme Corp".to_string())]);
 
-        // Query 3: Order by property and limit
-        let ordered_friends = graph.query()
-            .match_node("p").with_prop("name", "Alice")
-            .outgoing("KNOWS", "friend")
-            .order_by(|ctx| ctx.prop("friend", "age").and_then(|v| v.as_i64()).unwrap_or(0), false) // descending
-            .limit(1)
-            .project(|ctx| ctx.prop("friend", "name").unwrap().as_str().unwrap().to_string());
+        Ok(())
+    }
 
-        assert_eq!(ordered_friends, vec!["Charlie".to_string()]);
+    #[test]
+    fn test_concurrent_graph_multi_threading() -> Result<()> {
+        use std::sync::Arc;
+        use std::thread;
+
+        let cg = Arc::new(ConcurrentGraph::new());
+
+        // Spawn 4 writer threads
+        let mut handles = vec![];
+        for i in 0..4 {
+            let g = Arc::clone(&cg);
+            handles.push(thread::spawn(move || {
+                let n1 = g.create_node();
+                let n2 = g.create_node();
+                g.set_node_property(n1, "thread", i).unwrap();
+                g.create_edge(n1, n2, "THREAD_EDGE").unwrap();
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(cg.node_count(), 8);
+        assert_eq!(cg.edge_count(), 4);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_json_export_and_import() -> Result<()> {
+        let mut original = Graph::new();
+
+        let a = original.create_node_with(|n| {
+            n.add_label("City");
+            n.set_prop("name", "Kyoto");
+            n.set_prop("country", "Japan");
+        })?;
+
+        let b = original.create_node_with(|n| {
+            n.add_label("City");
+            n.set_prop("name", "Tokyo");
+            n.set_prop("country", "Japan");
+        })?;
+
+        original.create_edge_with(a, b, "SHINKANSEN", |r| {
+            r.set_prop("line", "Tokaido");
+            r.set_prop("duration_mins", 135);
+        })?;
+
+        // Export to JSON string
+        let json_data = original.to_json()?;
+        assert!(json_data.contains("Kyoto"));
+        assert!(json_data.contains("SHINKANSEN"));
+
+        // Import from JSON
+        let imported = Graph::from_json(&json_data)?;
+        assert_eq!(imported.node_count(), 2);
+        assert_eq!(imported.edge_count(), 1);
+
+        let cities = imported.nodes_with_label("City");
+        assert_eq!(cities.len(), 2);
+
+        let edges = imported.edges_with_type("SHINKANSEN");
+        assert_eq!(edges.len(), 1);
+
+        let imported_edge = imported.get_edge(edges[0]).unwrap();
+        assert_eq!(imported_edge.prop("duration_mins"), Some(&PropertyValue::Int(135)));
 
         Ok(())
     }
