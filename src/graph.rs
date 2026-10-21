@@ -1,11 +1,14 @@
 use crate::error::{GraphError, Result};
 use crate::id::{NodeId, RelId};
+use crate::index::IndexManager;
 use crate::model::{Direction, Node, Relationship};
+use crate::stats::GraphStats;
 use crate::storage::SlotArena;
 use crate::value::PropertyValue;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
+use std::ops::RangeBounds;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NodeRecord {
@@ -15,13 +18,14 @@ struct NodeRecord {
 }
 
 /// The core in-memory property graph engine, providing fast O(1) mutations,
-/// adjacency lookups, and secondary label/type indexing.
+/// adjacency lookups, secondary indices, and unique constraint enforcement.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Graph {
     nodes: SlotArena<NodeRecord>,
     relationships: SlotArena<Relationship>,
     label_index: HashMap<String, HashSet<NodeId>>,
     type_index: HashMap<String, HashSet<RelId>>,
+    index_manager: IndexManager,
 }
 
 impl Default for Graph {
@@ -38,6 +42,7 @@ impl Graph {
             relationships: SlotArena::new(),
             label_index: HashMap::new(),
             type_index: HashMap::new(),
+            index_manager: IndexManager::new(),
         }
     }
 
@@ -48,6 +53,7 @@ impl Graph {
             relationships: SlotArena::with_capacity(rel_cap),
             label_index: HashMap::new(),
             type_index: HashMap::new(),
+            index_manager: IndexManager::new(),
         }
     }
 
@@ -65,14 +71,30 @@ impl Graph {
         NodeId(raw_id)
     }
 
-    /// Create a node with customized initialization (labels, properties).
-    pub fn create_node_with<F>(&mut self, init: F) -> NodeId
+    /// Create a node with customized initialization (labels, properties),
+    /// verifying all unique constraints and updating property indices.
+    pub fn create_node_with<F>(&mut self, init: F) -> Result<NodeId>
     where
         F: FnOnce(&mut Node),
     {
-        let (raw_id, record) = self.nodes.insert_with(|raw_id| {
+        let mut temp_node = Node::new(NodeId(0));
+        init(&mut temp_node);
+
+        // Validate unique constraints across all labels and properties
+        for label in &temp_node.labels {
+            for (key, val) in temp_node.properties.iter() {
+                self.index_manager
+                    .validate_unique(label, key, val, None)?;
+            }
+        }
+
+        let labels = temp_node.labels.clone();
+        let properties = temp_node.properties.clone();
+
+        let (raw_id, _) = self.nodes.insert_with(|raw_id| {
             let mut node = Node::new(NodeId(raw_id));
-            init(&mut node);
+            node.labels = labels;
+            node.properties = properties;
             NodeRecord {
                 node,
                 outgoing: SmallVec::new(),
@@ -81,15 +103,22 @@ impl Graph {
         });
         let node_id = NodeId(raw_id);
 
-        // Update label index for any labels assigned in init
-        for label in &record.node.labels {
+        let rec = self.nodes.get(raw_id).unwrap();
+
+        // Update label index and property indices
+        for label in &rec.node.labels {
             self.label_index
                 .entry(label.clone())
                 .or_default()
                 .insert(node_id);
+
+            for (key, val) in rec.node.properties.iter() {
+                self.index_manager
+                    .index_property(label, key, val.clone(), node_id);
+            }
         }
 
-        node_id
+        Ok(node_id)
     }
 
     /// Returns a reference to a Node by ID, or None if it doesn't exist.
@@ -98,7 +127,7 @@ impl Graph {
     }
 
     /// Returns a mutable reference to a Node by ID, or None if it doesn't exist.
-    /// Note: to modify labels, use `add_node_label` or `remove_node_label` to keep index synchronized.
+    /// Note: To preserve index integrity, use `set_node_property` or `add_node_label`.
     pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         self.nodes.get_mut(id.raw()).map(|rec| &mut rec.node)
     }
@@ -120,25 +149,45 @@ impl Graph {
         self.nodes.iter().map(|(_, rec)| &rec.node)
     }
 
-    /// Add a label to a node and update secondary index.
+    /// Add a label to a node, verifying unique constraints and updating indexes.
     pub fn add_node_label<S: Into<String>>(&mut self, id: NodeId, label: S) -> Result<bool> {
         let label_str = label.into();
-        let rec = self
-            .nodes
-            .get_mut(id.raw())
-            .ok_or_else(|| GraphError::NodeNotFound(id.raw()))?;
 
+        // First validate constraints
+        {
+            let rec = self
+                .nodes
+                .get(id.raw())
+                .ok_or_else(|| GraphError::NodeNotFound(id.raw()))?;
+
+            if !rec.node.has_label(&label_str) {
+                for (key, val) in rec.node.properties.iter() {
+                    self.index_manager
+                        .validate_unique(&label_str, key, val, Some(id))?;
+                }
+            }
+        }
+
+        let rec = self.nodes.get_mut(id.raw()).unwrap();
         let inserted = rec.node.add_label(label_str.clone());
+
         if inserted {
             self.label_index
-                .entry(label_str)
+                .entry(label_str.clone())
                 .or_default()
                 .insert(id);
+
+            // Index all existing properties under the new label
+            for (key, val) in rec.node.properties.iter() {
+                self.index_manager
+                    .index_property(&label_str, key, val.clone(), id);
+            }
         }
+
         Ok(inserted)
     }
 
-    /// Remove a label from a node and update secondary index.
+    /// Remove a label from a node and deindex properties under that label.
     pub fn remove_node_label(&mut self, id: NodeId, label: &str) -> Result<bool> {
         let rec = self
             .nodes
@@ -153,22 +202,53 @@ impl Graph {
                     self.label_index.remove(label);
                 }
             }
+
+            // Deindex all properties under this removed label
+            for (key, val) in rec.node.properties.iter() {
+                self.index_manager
+                    .deindex_property(label, key, val, id);
+            }
         }
         Ok(removed)
     }
 
-    /// Set a property on a node.
+    /// Set a property on a node, validating unique constraints and updating property indices.
     pub fn set_node_property<K: Into<String>, V: Into<PropertyValue>>(
         &mut self,
         id: NodeId,
         key: K,
         val: V,
     ) -> Result<Option<PropertyValue>> {
-        let rec = self
-            .nodes
-            .get_mut(id.raw())
-            .ok_or_else(|| GraphError::NodeNotFound(id.raw()))?;
-        Ok(rec.node.set_prop(key, val))
+        let key_str = key.into();
+        let val_prop = val.into();
+
+        // Validate unique constraints across all labels this node carries
+        {
+            let rec = self
+                .nodes
+                .get(id.raw())
+                .ok_or_else(|| GraphError::NodeNotFound(id.raw()))?;
+
+            for label in &rec.node.labels {
+                self.index_manager
+                    .validate_unique(label, &key_str, &val_prop, Some(id))?;
+            }
+        }
+
+        let rec = self.nodes.get_mut(id.raw()).unwrap();
+        let old_val = rec.node.set_prop(key_str.clone(), val_prop.clone());
+
+        // Update property indices
+        for label in &rec.node.labels {
+            if let Some(old) = &old_val {
+                self.index_manager
+                    .deindex_property(label, &key_str, old, id);
+            }
+            self.index_manager
+                .index_property(label, &key_str, val_prop.clone(), id);
+        }
+
+        Ok(old_val)
     }
 
     /// Get a property reference from a node.
@@ -176,29 +256,44 @@ impl Graph {
         self.get_node(id).and_then(|n| n.prop(key))
     }
 
-    /// Remove a property from a node.
+    /// Remove a property from a node, updating indices.
     pub fn remove_node_property(&mut self, id: NodeId, key: &str) -> Result<Option<PropertyValue>> {
         let rec = self
             .nodes
             .get_mut(id.raw())
             .ok_or_else(|| GraphError::NodeNotFound(id.raw()))?;
-        Ok(rec.node.remove_prop(key))
+
+        let old_val = rec.node.remove_prop(key);
+        if let Some(old) = &old_val {
+            for label in &rec.node.labels {
+                self.index_manager
+                    .deindex_property(label, key, old, id);
+            }
+        }
+
+        Ok(old_val)
     }
 
-    /// Delete a node and all incoming/outgoing relationships connected to it.
+    /// Delete a node and all incoming/outgoing relationships connected to it,
+    /// cleaning up all secondary indices and constraints.
     pub fn delete_node(&mut self, id: NodeId) -> Result<Node> {
         let rec = self
             .nodes
             .remove(id.raw())
             .ok_or_else(|| GraphError::NodeNotFound(id.raw()))?;
 
-        // Remove from label index
+        // Remove from label index and property indices
         for label in &rec.node.labels {
             if let Some(set) = self.label_index.get_mut(label) {
                 set.remove(&id);
                 if set.is_empty() {
                     self.label_index.remove(label);
                 }
+            }
+
+            for (key, val) in rec.node.properties.iter() {
+                self.index_manager
+                    .deindex_property(label, key, val, id);
             }
         }
 
@@ -208,7 +303,6 @@ impl Graph {
                 if let Some(type_set) = self.type_index.get_mut(&rel.rel_type) {
                     type_set.remove(&rel_id);
                 }
-                // Remove from target node's incoming adjacency if target is not self
                 if rel.target != id {
                     if let Some(target_rec) = self.nodes.get_mut(rel.target.raw()) {
                         target_rec.incoming.retain(|r| *r != rel_id);
@@ -223,7 +317,6 @@ impl Graph {
                 if let Some(type_set) = self.type_index.get_mut(&rel.rel_type) {
                     type_set.remove(&rel_id);
                 }
-                // Remove from source node's outgoing adjacency if source is not self
                 if rel.source != id {
                     if let Some(source_rec) = self.nodes.get_mut(rel.source.raw()) {
                         source_rec.outgoing.retain(|r| *r != rel_id);
@@ -467,12 +560,199 @@ impl Graph {
             .unwrap_or_default()
     }
 
+    // =========================================================================
+    // Secondary Index & Unique Constraint Operations
+    // =========================================================================
+
+    /// Create a secondary property index on (label, property_key).
+    /// Automatically populates the index with any existing matching nodes in the graph.
+    pub fn create_index(&mut self, label: &str, property_key: &str) -> Result<bool> {
+        if !self.index_manager.create_index(label, property_key) {
+            return Ok(false);
+        }
+
+        // Populate index from existing nodes
+        let node_ids = self.nodes_with_label(label);
+        for id in node_ids {
+            if let Some(val) = self.get_node_property(id, property_key) {
+                self.index_manager
+                    .index_property(label, property_key, val.clone(), id);
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Drop a secondary property index on (label, property_key).
+    pub fn drop_index(&mut self, label: &str, property_key: &str) -> bool {
+        self.index_manager.drop_index(label, property_key)
+    }
+
+    /// Returns true if an index exists on (label, property_key).
+    pub fn has_index(&self, label: &str, property_key: &str) -> bool {
+        self.index_manager.has_index(label, property_key)
+    }
+
+    /// Create a unique constraint on (label, property_key).
+    /// Ensures all existing nodes with this label have unique values for this property.
+    pub fn create_unique_constraint(&mut self, label: &str, property_key: &str) -> Result<bool> {
+        // First verify existing data satisfies uniqueness
+        let mut seen = HashSet::new();
+        let node_ids = self.nodes_with_label(label);
+        for id in node_ids {
+            if let Some(val) = self.get_node_property(id, property_key) {
+                if !seen.insert(val.clone()) {
+                    return Err(GraphError::ConstraintViolation(format!(
+                        "Cannot create unique constraint on (:{label} {{{property_key}}}) - duplicate value '{val}' exists"
+                    )));
+                }
+            }
+        }
+
+        // Register constraint and underlying index
+        let created = self
+            .index_manager
+            .create_unique_constraint(label, property_key);
+
+        // Populate index
+        let node_ids = self.nodes_with_label(label);
+        for id in node_ids {
+            if let Some(val) = self.get_node_property(id, property_key) {
+                self.index_manager
+                    .index_property(label, property_key, val.clone(), id);
+            }
+        }
+
+        Ok(created)
+    }
+
+    /// Drop a unique constraint on (label, property_key).
+    pub fn drop_unique_constraint(&mut self, label: &str, property_key: &str) -> bool {
+        self.index_manager.drop_unique_constraint(label, property_key)
+    }
+
+    /// Returns true if a unique constraint exists on (label, property_key).
+    pub fn has_unique_constraint(&self, label: &str, property_key: &str) -> bool {
+        self.index_manager
+            .has_unique_constraint(label, property_key)
+    }
+
+    /// Find nodes matching an exact property value under a given label.
+    /// Uses the secondary index if available (O(1)), otherwise scans matching labeled nodes.
+    pub fn find_nodes_by_property(
+        &self,
+        label: &str,
+        property_key: &str,
+        value: &PropertyValue,
+    ) -> Vec<NodeId> {
+        if let Some(results) = self.index_manager.find_exact(label, property_key, value) {
+            return results;
+        }
+
+        // Fallback: scan nodes with this label
+        let node_ids = self.nodes_with_label(label);
+        node_ids
+            .into_iter()
+            .filter(|&id| self.get_node_property(id, property_key) == Some(value))
+            .collect()
+    }
+
+    /// Find nodes with property values within a range under a given label.
+    /// Uses the secondary index if available (O(log N)), otherwise scans matching labeled nodes.
+    pub fn find_nodes_by_property_range<R>(
+        &self,
+        label: &str,
+        property_key: &str,
+        range: R,
+    ) -> Vec<NodeId>
+    where
+        R: RangeBounds<PropertyValue> + Clone,
+    {
+        if let Some(results) = self
+            .index_manager
+            .find_range(label, property_key, range.clone())
+        {
+            return results;
+        }
+
+        // Fallback: scan nodes with this label
+        let node_ids = self.nodes_with_label(label);
+        node_ids
+            .into_iter()
+            .filter(|&id| {
+                if let Some(val) = self.get_node_property(id, property_key) {
+                    range.contains(val)
+                } else {
+                    false
+                }
+            })
+            .collect()
+    }
+
+    // =========================================================================
+    // Statistics & Inspection
+    // =========================================================================
+
+    /// Compute summary statistics, degree distribution, and schema info for the graph.
+    pub fn stats(&self) -> GraphStats {
+        let node_count = self.node_count();
+        let edge_count = self.edge_count();
+
+        let density = if node_count > 1 {
+            (edge_count as f64) / ((node_count as f64) * ((node_count - 1) as f64))
+        } else {
+            0.0
+        };
+
+        let average_degree = if node_count > 0 {
+            (edge_count as f64 * 2.0) / (node_count as f64)
+        } else {
+            0.0
+        };
+
+        let mut isolated_nodes = 0;
+        for (_, rec) in self.nodes.iter() {
+            if rec.outgoing.is_empty() && rec.incoming.is_empty() {
+                isolated_nodes += 1;
+            }
+        }
+
+        let mut self_loops = 0;
+        for (_, rel) in self.relationships.iter() {
+            if rel.is_self_loop() {
+                self_loops += 1;
+            }
+        }
+
+        let mut label_counts = HashMap::new();
+        for (label, set) in &self.label_index {
+            label_counts.insert(label.clone(), set.len());
+        }
+
+        let mut type_counts = HashMap::new();
+        for (rel_type, set) in &self.type_index {
+            type_counts.insert(rel_type.clone(), set.len());
+        }
+
+        GraphStats {
+            node_count,
+            edge_count,
+            density,
+            average_degree,
+            isolated_nodes,
+            self_loops,
+            label_counts,
+            type_counts,
+        }
+    }
+
     /// Clear the entire graph, removing all nodes, relationships, and index entries.
     pub fn clear(&mut self) {
         self.nodes.clear();
         self.relationships.clear();
         self.label_index.clear();
         self.type_index.clear();
+        self.index_manager.clear();
     }
 
     /// Returns true if the graph has neither nodes nor relationships.

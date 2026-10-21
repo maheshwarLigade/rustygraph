@@ -17,13 +17,13 @@
 //!         n.add_label("Person");
 //!         n.set_prop("name", "Alice");
 //!         n.set_prop("age", 30);
-//!     });
+//!     })?;
 //!
 //!     let bob = graph.create_node_with(|n| {
 //!         n.add_label("Person");
 //!         n.set_prop("name", "Bob");
 //!         n.set_prop("age", 28);
-//!     });
+//!     })?;
 //!
 //!     // Create a directed relationship
 //!     let _rel = graph.create_edge_with(alice, bob, "KNOWS", |r| {
@@ -47,7 +47,9 @@
 pub mod error;
 pub mod graph;
 pub mod id;
+pub mod index;
 pub mod model;
+pub mod stats;
 pub mod storage;
 pub mod value;
 
@@ -56,22 +58,27 @@ pub mod prelude {
     pub use crate::error::{GraphError, Result};
     pub use crate::graph::Graph;
     pub use crate::id::{NodeId, RelId};
+    pub use crate::index::{IndexKey, IndexManager, PropertyIndex};
     pub use crate::model::{Direction, Node, Properties, Relationship};
+    pub use crate::stats::GraphStats;
     pub use crate::value::PropertyValue;
 }
 
 pub use error::{GraphError, Result};
 pub use graph::Graph;
 pub use id::{NodeId, RelId};
+pub use index::{IndexKey, IndexManager, PropertyIndex};
 pub use model::{Direction, Node, Properties, Relationship};
+pub use stats::GraphStats;
 pub use value::PropertyValue;
 
 #[cfg(test)]
 mod tests {
     use super::prelude::*;
+    use std::ops::Bound::{Excluded, Included};
 
     #[test]
-    fn test_node_creation_and_properties() {
+    fn test_node_creation_and_properties() -> Result<()> {
         let mut graph = Graph::new();
 
         let node_id = graph.create_node_with(|n| {
@@ -79,7 +86,7 @@ mod tests {
             n.add_label("Developer");
             n.set_prop("name", "Neo");
             n.set_prop("skills", vec!["Rust", "Distributed Systems"]);
-        });
+        })?;
 
         let node = graph.get_node(node_id).expect("node should exist");
         assert_eq!(node.id, node_id);
@@ -92,15 +99,17 @@ mod tests {
             .set_node_property(node_id, "level", 42)
             .expect("should update property");
         assert_eq!(graph.get_node_property(node_id, "level"), Some(&PropertyValue::Int(42)));
+
+        Ok(())
     }
 
     #[test]
     fn test_edge_creation_and_traversal() -> Result<()> {
         let mut graph = Graph::new();
 
-        let a = graph.create_node_with(|n| { n.add_label("City"); n.set_prop("name", "Paris"); });
-        let b = graph.create_node_with(|n| { n.add_label("City"); n.set_prop("name", "Berlin"); });
-        let c = graph.create_node_with(|n| { n.add_label("City"); n.set_prop("name", "Rome"); });
+        let a = graph.create_node_with(|n| { n.add_label("City"); n.set_prop("name", "Paris"); })?;
+        let b = graph.create_node_with(|n| { n.add_label("City"); n.set_prop("name", "Berlin"); })?;
+        let c = graph.create_node_with(|n| { n.add_label("City"); n.set_prop("name", "Rome"); })?;
 
         let e1 = graph.create_edge_with(a, b, "CONNECTED_TO", |r| {
             r.set_prop("distance_km", 1050);
@@ -135,9 +144,9 @@ mod tests {
     fn test_label_and_type_indexes() -> Result<()> {
         let mut graph = Graph::new();
 
-        let n1 = graph.create_node_with(|n| { n.add_label("User"); });
-        let n2 = graph.create_node_with(|n| { n.add_label("User"); });
-        let n3 = graph.create_node_with(|n| { n.add_label("Admin"); });
+        let n1 = graph.create_node_with(|n| { n.add_label("User"); })?;
+        let n2 = graph.create_node_with(|n| { n.add_label("User"); })?;
+        let n3 = graph.create_node_with(|n| { n.add_label("Admin"); })?;
 
         let r1 = graph.create_edge(n1, n2, "FOLLOWS")?;
         let r2 = graph.create_edge(n2, n3, "BLOCKS")?;
@@ -203,7 +212,7 @@ mod tests {
         let n1 = graph.create_node();
         graph.delete_node(n1)?;
 
-        // Trying to access deleted n1 should return None / Error
+        // Trying to access deleted n1 should return None
         assert!(graph.get_node(n1).is_none());
         assert!(!graph.contains_node(n1));
 
@@ -232,5 +241,125 @@ mod tests {
         let json_repr = serde_json::to_string(&list_val).unwrap();
         let deserialized: PropertyValue = serde_json::from_str(&json_repr).unwrap();
         assert_eq!(list_val, deserialized);
+    }
+
+    #[test]
+    fn test_property_indexing_and_range_queries() -> Result<()> {
+        let mut graph = Graph::new();
+
+        // Create index on (:User {age})
+        graph.create_index("User", "age")?;
+        assert!(graph.has_index("User", "age"));
+
+        let u1 = graph.create_node_with(|n| {
+            n.add_label("User");
+            n.set_prop("name", "Alice");
+            n.set_prop("age", 25);
+        })?;
+
+        let u2 = graph.create_node_with(|n| {
+            n.add_label("User");
+            n.set_prop("name", "Bob");
+            n.set_prop("age", 35);
+        })?;
+
+        let u3 = graph.create_node_with(|n| {
+            n.add_label("User");
+            n.set_prop("name", "Charlie");
+            n.set_prop("age", 45);
+        })?;
+
+        // Exact index lookup
+        let age_35 = graph.find_nodes_by_property("User", "age", &PropertyValue::from(35));
+        assert_eq!(age_35, vec![u2]);
+
+        // Range index lookup: age >= 25 && age < 45
+        let age_range = graph.find_nodes_by_property_range(
+            "User",
+            "age",
+            (Included(PropertyValue::from(25)), Excluded(PropertyValue::from(45))),
+        );
+        assert_eq!(age_range.len(), 2);
+        assert!(age_range.contains(&u1));
+        assert!(age_range.contains(&u2));
+        assert!(!age_range.contains(&u3));
+
+        // Update age of u2 to 50
+        graph.set_node_property(u2, "age", 50)?;
+        let age_35_after = graph.find_nodes_by_property("User", "age", &PropertyValue::from(35));
+        assert!(age_35_after.is_empty());
+
+        let age_50 = graph.find_nodes_by_property("User", "age", &PropertyValue::from(50));
+        assert_eq!(age_50, vec![u2]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_unique_constraints() -> Result<()> {
+        let mut graph = Graph::new();
+
+        // Create unique constraint on (:User {email})
+        graph.create_unique_constraint("User", "email")?;
+        assert!(graph.has_unique_constraint("User", "email"));
+
+        // Creating first user succeeds
+        let u1 = graph.create_node_with(|n| {
+            n.add_label("User");
+            n.set_prop("email", "alice@example.com");
+        })?;
+
+        // Attempting to create duplicate user violates unique constraint
+        let duplicate_result = graph.create_node_with(|n| {
+            n.add_label("User");
+            n.set_prop("email", "alice@example.com");
+        });
+        assert!(duplicate_result.is_err());
+        match duplicate_result {
+            Err(GraphError::ConstraintViolation(msg)) => {
+                assert!(msg.contains("Unique constraint violated"));
+            }
+            _ => panic!("Expected ConstraintViolation error"),
+        }
+
+        // Setting duplicate email on another node also fails
+        let u2 = graph.create_node_with(|n| {
+            n.add_label("User");
+            n.set_prop("email", "bob@example.com");
+        })?;
+
+        let update_result = graph.set_node_property(u2, "email", "alice@example.com");
+        assert!(update_result.is_err());
+
+        // Updating self with the same email succeeds
+        let self_update = graph.set_node_property(u1, "email", "alice@example.com");
+        assert!(self_update.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_graph_statistics() -> Result<()> {
+        let mut graph = Graph::new();
+
+        let n1 = graph.create_node_with(|n| { n.add_label("Server"); })?;
+        let n2 = graph.create_node_with(|n| { n.add_label("Client"); })?;
+        let _isolated = graph.create_node_with(|n| { n.add_label("Client"); })?;
+
+        let _e1 = graph.create_edge(n1, n2, "COMMUNICATES")?;
+        let _loop = graph.create_edge(n1, n1, "HEARTBEAT")?;
+
+        let stats = graph.stats();
+        assert_eq!(stats.node_count, 3);
+        assert_eq!(stats.edge_count, 2);
+        assert_eq!(stats.isolated_nodes, 1);
+        assert_eq!(stats.self_loops, 1);
+        assert_eq!(stats.label_counts.get("Server"), Some(&1));
+        assert_eq!(stats.label_counts.get("Client"), Some(&2));
+        assert_eq!(stats.type_counts.get("COMMUNICATES"), Some(&1));
+        assert_eq!(stats.type_counts.get("HEARTBEAT"), Some(&1));
+        assert!(stats.density > 0.0);
+
+        Ok(())
     }
 }
