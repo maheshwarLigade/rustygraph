@@ -354,6 +354,12 @@ cargo run --example cap_distributed_cluster
 
 ---
 
+## 🤝 Contributing
+
+Contributions, bug reports, and feature suggestions are warmly welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for setup instructions, coding guidelines, testing workflows, and PR submission details.
+
+---
+
 ## 📄 License
  
 This project is licensed under the **Apache License, Version 2.0**.
