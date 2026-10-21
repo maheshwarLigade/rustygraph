@@ -760,6 +760,11 @@ impl Graph {
         crate::traversal::Traverser::from_nodes(self, starts)
     }
 
+    /// Create a fluent declarative query builder for pattern matching, filtering, and projection.
+    pub fn query(&self) -> crate::query::QueryBuilder<'_> {
+        crate::query::QueryBuilder::new(self)
+    }
+
     /// Clear the entire graph, removing all nodes, relationships, and index entries.
     pub fn clear(&mut self) {
         self.nodes.clear();
