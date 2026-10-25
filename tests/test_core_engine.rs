@@ -16,13 +16,19 @@ fn test_node_creation_and_properties() -> Result<()> {
     assert_eq!(node.id, node_id);
     assert!(node.has_label("Person"));
     assert!(node.has_label("Developer"));
-    assert_eq!(node.prop("name"), Some(&PropertyValue::String("Neo".into())));
+    assert_eq!(
+        node.prop("name"),
+        Some(&PropertyValue::String("Neo".into()))
+    );
 
     // Test property update
     graph
         .set_node_property(node_id, "level", 42)
         .expect("should update property");
-    assert_eq!(graph.get_node_property(node_id, "level"), Some(&PropertyValue::Int(42)));
+    assert_eq!(
+        graph.get_node_property(node_id, "level"),
+        Some(&PropertyValue::Int(42))
+    );
 
     Ok(())
 }
@@ -31,9 +37,18 @@ fn test_node_creation_and_properties() -> Result<()> {
 fn test_edge_creation_and_traversal() -> Result<()> {
     let mut graph = Graph::new();
 
-    let a = graph.create_node_with(|n| { n.add_label("City"); n.set_prop("name", "Paris"); })?;
-    let b = graph.create_node_with(|n| { n.add_label("City"); n.set_prop("name", "Berlin"); })?;
-    let c = graph.create_node_with(|n| { n.add_label("City"); n.set_prop("name", "Rome"); })?;
+    let a = graph.create_node_with(|n| {
+        n.add_label("City");
+        n.set_prop("name", "Paris");
+    })?;
+    let b = graph.create_node_with(|n| {
+        n.add_label("City");
+        n.set_prop("name", "Berlin");
+    })?;
+    let c = graph.create_node_with(|n| {
+        n.add_label("City");
+        n.set_prop("name", "Rome");
+    })?;
 
     let e1 = graph.create_edge_with(a, b, "CONNECTED_TO", |r| {
         r.set_prop("distance_km", 1050);
@@ -68,9 +83,15 @@ fn test_edge_creation_and_traversal() -> Result<()> {
 fn test_label_and_type_indexes() -> Result<()> {
     let mut graph = Graph::new();
 
-    let n1 = graph.create_node_with(|n| { n.add_label("User"); })?;
-    let n2 = graph.create_node_with(|n| { n.add_label("User"); })?;
-    let n3 = graph.create_node_with(|n| { n.add_label("Admin"); })?;
+    let n1 = graph.create_node_with(|n| {
+        n.add_label("User");
+    })?;
+    let n2 = graph.create_node_with(|n| {
+        n.add_label("User");
+    })?;
+    let n3 = graph.create_node_with(|n| {
+        n.add_label("Admin");
+    })?;
 
     let r1 = graph.create_edge(n1, n2, "FOLLOWS")?;
     let r2 = graph.create_edge(n2, n3, "BLOCKS")?;
@@ -201,7 +222,10 @@ fn test_property_indexing_and_range_queries() -> Result<()> {
     let age_range = graph.find_nodes_by_property_range(
         "User",
         "age",
-        (Included(PropertyValue::from(25)), Excluded(PropertyValue::from(45))),
+        (
+            Included(PropertyValue::from(25)),
+            Excluded(PropertyValue::from(45)),
+        ),
     );
     assert_eq!(age_range.len(), 2);
     assert!(age_range.contains(&u1));
@@ -266,9 +290,15 @@ fn test_unique_constraints() -> Result<()> {
 fn test_graph_statistics() -> Result<()> {
     let mut graph = Graph::new();
 
-    let n1 = graph.create_node_with(|n| { n.add_label("Server"); })?;
-    let n2 = graph.create_node_with(|n| { n.add_label("Client"); })?;
-    let _isolated = graph.create_node_with(|n| { n.add_label("Client"); })?;
+    let n1 = graph.create_node_with(|n| {
+        n.add_label("Server");
+    })?;
+    let n2 = graph.create_node_with(|n| {
+        n.add_label("Client");
+    })?;
+    let _isolated = graph.create_node_with(|n| {
+        n.add_label("Client");
+    })?;
 
     let _e1 = graph.create_edge(n1, n2, "COMMUNICATES")?;
     let _loop = graph.create_edge(n1, n1, "HEARTBEAT")?;
@@ -291,11 +321,21 @@ fn test_graph_statistics() -> Result<()> {
 fn test_fluent_traversal_engine() -> Result<()> {
     let mut graph = Graph::new();
 
-    let a = graph.create_node_with(|n| { n.set_prop("name", "A"); })?;
-    let b = graph.create_node_with(|n| { n.set_prop("name", "B"); })?;
-    let c = graph.create_node_with(|n| { n.set_prop("name", "C"); })?;
-    let d = graph.create_node_with(|n| { n.set_prop("name", "D"); })?;
-    let e = graph.create_node_with(|n| { n.set_prop("name", "E"); })?;
+    let a = graph.create_node_with(|n| {
+        n.set_prop("name", "A");
+    })?;
+    let b = graph.create_node_with(|n| {
+        n.set_prop("name", "B");
+    })?;
+    let c = graph.create_node_with(|n| {
+        n.set_prop("name", "C");
+    })?;
+    let d = graph.create_node_with(|n| {
+        n.set_prop("name", "D");
+    })?;
+    let e = graph.create_node_with(|n| {
+        n.set_prop("name", "E");
+    })?;
 
     graph.create_edge(a, b, "NEXT")?;
     graph.create_edge(b, c, "NEXT")?;
@@ -347,10 +387,18 @@ fn test_shortest_path_and_dijkstra() -> Result<()> {
     let c = graph.create_node();
     let d = graph.create_node();
 
-    let _e_ab = graph.create_edge_with(a, b, "ROAD", |r| { r.set_prop("weight", 10.0); })?;
-    let _e_bd = graph.create_edge_with(b, d, "ROAD", |r| { r.set_prop("weight", 1.0); })?;
-    let _e_ac = graph.create_edge_with(a, c, "ROAD", |r| { r.set_prop("weight", 2.0); })?;
-    let _e_cd = graph.create_edge_with(c, d, "ROAD", |r| { r.set_prop("weight", 3.0); })?;
+    let _e_ab = graph.create_edge_with(a, b, "ROAD", |r| {
+        r.set_prop("weight", 10.0);
+    })?;
+    let _e_bd = graph.create_edge_with(b, d, "ROAD", |r| {
+        r.set_prop("weight", 1.0);
+    })?;
+    let _e_ac = graph.create_edge_with(a, c, "ROAD", |r| {
+        r.set_prop("weight", 2.0);
+    })?;
+    let _e_cd = graph.create_edge_with(c, d, "ROAD", |r| {
+        r.set_prop("weight", 3.0);
+    })?;
 
     let (dijkstra_path, total_weight) =
         algo::dijkstra_by_prop(&graph, a, d, Direction::Outgoing, "weight")
@@ -463,22 +511,45 @@ fn test_declarative_pattern_matching_query() -> Result<()> {
         n.set_prop("name", "Acme Corp");
     })?;
 
-    graph.create_edge_with(alice, bob, "KNOWS", |r| { r.set_prop("since", 2020); })?;
-    graph.create_edge_with(alice, charlie, "KNOWS", |r| { r.set_prop("since", 2018); })?;
+    graph.create_edge_with(alice, bob, "KNOWS", |r| {
+        r.set_prop("since", 2020);
+    })?;
+    graph.create_edge_with(alice, charlie, "KNOWS", |r| {
+        r.set_prop("since", 2018);
+    })?;
     graph.create_edge(bob, acme, "WORKS_AT")?;
 
-    let young_friends: Vec<String> = graph.query()
-        .match_node("p").with_label("Person").with_prop("name", "Alice")
-        .outgoing_as("r", "KNOWS", "friend").with_label("Person")
-        .filter(|ctx| ctx.prop("friend", "age").and_then(|v| v.as_i64()).unwrap_or(0) < 30)
-        .project(|ctx| ctx.prop("friend", "name").unwrap().as_str().unwrap().to_string());
+    let young_friends: Vec<String> = graph
+        .query()
+        .match_node("p")
+        .with_label("Person")
+        .with_prop("name", "Alice")
+        .outgoing_as("r", "KNOWS", "friend")
+        .with_label("Person")
+        .filter(|ctx| {
+            ctx.prop("friend", "age")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0)
+                < 30
+        })
+        .project(|ctx| {
+            ctx.prop("friend", "name")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        });
 
     assert_eq!(young_friends, vec!["Bob".to_string()]);
 
-    let company_referrals = graph.query()
-        .match_node("p").with_label("Person")
-        .outgoing("KNOWS", "f").with_label("Person")
-        .outgoing("WORKS_AT", "c").with_label("Company")
+    let company_referrals = graph
+        .query()
+        .match_node("p")
+        .with_label("Person")
+        .outgoing("KNOWS", "f")
+        .with_label("Person")
+        .outgoing("WORKS_AT", "c")
+        .with_label("Company")
         .project(|ctx| {
             (
                 ctx.prop("p", "name").unwrap().as_str().unwrap().to_string(),
@@ -487,7 +558,14 @@ fn test_declarative_pattern_matching_query() -> Result<()> {
             )
         });
 
-    assert_eq!(company_referrals, vec![("Alice".to_string(), "Bob".to_string(), "Acme Corp".to_string())]);
+    assert_eq!(
+        company_referrals,
+        vec![(
+            "Alice".to_string(),
+            "Bob".to_string(),
+            "Acme Corp".to_string()
+        )]
+    );
 
     Ok(())
 }
@@ -556,7 +634,10 @@ fn test_json_export_and_import() -> Result<()> {
     assert_eq!(edges.len(), 1);
 
     let imported_edge = imported.get_edge(edges[0]).unwrap();
-    assert_eq!(imported_edge.prop("duration_mins"), Some(&PropertyValue::Int(135)));
+    assert_eq!(
+        imported_edge.prop("duration_mins"),
+        Some(&PropertyValue::Int(135))
+    );
 
     Ok(())
 }
@@ -582,7 +663,9 @@ fn test_cypher_query_language_execution() -> Result<()> {
         n.set_prop("name", "Acme Corp");
     })?;
 
-    graph.create_edge_with(alice, bob, "KNOWS", |r| { r.set_prop("since", 2020); })?;
+    graph.create_edge_with(alice, bob, "KNOWS", |r| {
+        r.set_prop("since", 2020);
+    })?;
     graph.create_edge(bob, acme, "WORKS_AT")?;
 
     // 1. Simple Node Match
@@ -591,19 +674,27 @@ fn test_cypher_query_language_execution() -> Result<()> {
     assert_eq!(res1.rows.len(), 2);
 
     // 2. Pattern Match with WHERE filter
-    let res2 = graph.cypher(
-        "MATCH (p:Person)-[:KNOWS]->(f:Person) WHERE f.age < 30 RETURN p.name, f.name"
-    )?;
+    let res2 = graph
+        .cypher("MATCH (p:Person)-[:KNOWS]->(f:Person) WHERE f.age < 30 RETURN p.name, f.name")?;
     assert_eq!(res2.columns, vec!["p.name", "f.name"]);
     assert_eq!(res2.rows.len(), 1);
-    assert_eq!(res2.rows[0], vec![PropertyValue::from("Alice"), PropertyValue::from("Bob")]);
+    assert_eq!(
+        res2.rows[0],
+        vec![PropertyValue::from("Alice"), PropertyValue::from("Bob")]
+    );
 
     // 3. Multi-hop Pattern Match
     let res3 = graph.cypher(
-        "MATCH (p:Person)-[:KNOWS]->(f:Person)-[:WORKS_AT]->(c:Company) RETURN p.name, c.name"
+        "MATCH (p:Person)-[:KNOWS]->(f:Person)-[:WORKS_AT]->(c:Company) RETURN p.name, c.name",
     )?;
     assert_eq!(res3.rows.len(), 1);
-    assert_eq!(res3.rows[0], vec![PropertyValue::from("Alice"), PropertyValue::from("Acme Corp")]);
+    assert_eq!(
+        res3.rows[0],
+        vec![
+            PropertyValue::from("Alice"),
+            PropertyValue::from("Acme Corp")
+        ]
+    );
 
     // 4. Formatted ASCII table display test
     let formatted = format!("{res2}");

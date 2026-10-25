@@ -78,14 +78,23 @@ fn test_node_and_edge_property_mutations() -> Result<()> {
         node.set_prop("pages", 350);
     })?;
 
-    assert_eq!(graph.get_node_property(n, "title"), Some(&PropertyValue::from("Book")));
-    assert_eq!(graph.get_node_property(n, "pages"), Some(&PropertyValue::from(350)));
+    assert_eq!(
+        graph.get_node_property(n, "title"),
+        Some(&PropertyValue::from("Book"))
+    );
+    assert_eq!(
+        graph.get_node_property(n, "pages"),
+        Some(&PropertyValue::from(350))
+    );
     assert_eq!(graph.get_node_property(n, "non_existent"), None);
 
     // Overwrite property
     let old_pages = graph.set_node_property(n, "pages", 400)?;
     assert_eq!(old_pages, Some(PropertyValue::from(350)));
-    assert_eq!(graph.get_node_property(n, "pages"), Some(&PropertyValue::from(400)));
+    assert_eq!(
+        graph.get_node_property(n, "pages"),
+        Some(&PropertyValue::from(400))
+    );
 
     // Remove property
     let removed = graph.remove_node_property(n, "title")?;
@@ -98,9 +107,15 @@ fn test_node_and_edge_property_mutations() -> Result<()> {
         r.set_prop("rating", 4.8);
     })?;
 
-    assert_eq!(graph.get_edge_property(edge_id, "rating"), Some(&PropertyValue::from(4.8)));
+    assert_eq!(
+        graph.get_edge_property(edge_id, "rating"),
+        Some(&PropertyValue::from(4.8))
+    );
     graph.set_edge_property(edge_id, "rating", 5.0)?;
-    assert_eq!(graph.get_edge_property(edge_id, "rating"), Some(&PropertyValue::from(5.0)));
+    assert_eq!(
+        graph.get_edge_property(edge_id, "rating"),
+        Some(&PropertyValue::from(5.0))
+    );
     graph.remove_edge_property(edge_id, "rating")?;
     assert_eq!(graph.get_edge_property(edge_id, "rating"), None);
 

@@ -8,7 +8,6 @@ pub mod consensus;
 pub mod node;
 
 pub use consensus::{
-    ClusterCommand, ClusterMode, ClusterNode, ClusterNodeId, ClusterRole, LogEntry,
-    VirtualNetwork,
+    ClusterCommand, ClusterMode, ClusterNode, ClusterNodeId, ClusterRole, LogEntry, VirtualNetwork,
 };
 pub use node::{ClusterMessage, ClusterPeer, ClusterStatus, DistributedClusterNode};

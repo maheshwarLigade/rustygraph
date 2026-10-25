@@ -81,11 +81,7 @@ impl Graph {
 
         // Recreate fulltext indices
         for ft_idx in dump.fulltext_indices {
-            let _ = graph.create_fulltext_index(
-                &ft_idx.name,
-                &ft_idx.label,
-                &ft_idx.property_key,
-            );
+            let _ = graph.create_fulltext_index(&ft_idx.name, &ft_idx.label, &ft_idx.property_key);
         }
 
         Ok(graph)
@@ -101,8 +97,7 @@ impl Graph {
     /// Deserialize a graph from a JSON string.
     pub fn from_json(json_str: &str) -> Result<Self> {
         let dump: GraphDump = serde_json::from_str(json_str)
-            .map_err(|e| GraphError::SerializationError(e.to_string()))
-        ?;
+            .map_err(|e| GraphError::SerializationError(e.to_string()))?;
         Self::import_dump(dump)
     }
 }

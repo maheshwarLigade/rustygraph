@@ -63,7 +63,10 @@ fn main() -> Result<()> {
     // Vector format: [ML, NLP, GraphTheory, Systems]
     let p_gcn = graph.create_node_with(|n| {
         n.add_label("Paper");
-        n.set_prop("title", "Semi-Supervised Classification with Graph Convolutional Networks");
+        n.set_prop(
+            "title",
+            "Semi-Supervised Classification with Graph Convolutional Networks",
+        );
         n.set_prop("year", 2017);
         n.set_prop("embedding", vec![0.85f32, 0.10, 0.95, 0.20]);
     })?;
@@ -77,14 +80,20 @@ fn main() -> Result<()> {
 
     let p_rag_paper = graph.create_node_with(|n| {
         n.add_label("Paper");
-        n.set_prop("title", "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks");
+        n.set_prop(
+            "title",
+            "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+        );
         n.set_prop("year", 2020);
         n.set_prop("embedding", vec![0.80f32, 0.95, 0.30, 0.40]);
     })?;
 
     let p_graph_rag = graph.create_node_with(|n| {
         n.add_label("Paper");
-        n.set_prop("title", "GraphRAG: Unlocking LLM Discovery on Complex Knowledge Networks");
+        n.set_prop(
+            "title",
+            "GraphRAG: Unlocking LLM Discovery on Complex Knowledge Networks",
+        );
         n.set_prop("year", 2024);
         n.set_prop("embedding", vec![0.90f32, 0.85, 0.88, 0.50]);
     })?;
@@ -109,8 +118,11 @@ fn main() -> Result<()> {
     graph.create_edge(p_graph_rag, p_gat, "CITES")?;
     graph.create_edge(p_graph_rag, p_rag_paper, "CITES")?;
 
-    println!("Populated Knowledge Graph with {} nodes and {} edges.\n",
-        graph.node_count(), graph.edge_count());
+    println!(
+        "Populated Knowledge Graph with {} nodes and {} edges.\n",
+        graph.node_count(),
+        graph.edge_count()
+    );
 
     // ─────────────────────────────────────────────────────────────────
     // Step 1: Pure Vector Similarity Search
@@ -128,8 +140,14 @@ fn main() -> Result<()> {
         let node = graph.get_node(hit.node_id).unwrap();
         let title = node.prop("title").unwrap();
         let year = node.prop("year").unwrap();
-        println!("  Hit #{}: Score: {:.4} | Node: {} | {} ({})",
-            i + 1, hit.score, hit.node_id, title, year);
+        println!(
+            "  Hit #{}: Score: {:.4} | Node: {} | {} ({})",
+            i + 1,
+            hit.score,
+            hit.node_id,
+            title,
+            year
+        );
     }
     println!();
 
@@ -153,7 +171,10 @@ fn main() -> Result<()> {
         let seed_node = graph.get_node(hit.node_id).unwrap();
         let seed_title = seed_node.prop("title").unwrap();
         println!("Primary Seed Node: {} (\"{}\")", hit.node_id, seed_title);
-        println!("Expanded Graph Context ({} relevant paths discovered):", paths.len());
+        println!(
+            "Expanded Graph Context ({} relevant paths discovered):",
+            paths.len()
+        );
 
         for path in &paths {
             if path.is_empty() {
@@ -162,13 +183,19 @@ fn main() -> Result<()> {
             let target_node = graph.get_node(path.end_node()).unwrap();
             let labels: Vec<String> = target_node.labels.iter().cloned().collect();
             let label_str = labels.join(", ");
-            let desc = target_node.prop("name")
+            let desc = target_node
+                .prop("name")
                 .or_else(|| target_node.prop("title"))
                 .map(|p| p.to_string())
                 .unwrap_or_else(|| "Unknown".to_string());
 
-            println!("  ↳ Depth {}: Path {} (Target [{}]: \"{}\")",
-                path.len(), path, label_str, desc);
+            println!(
+                "  ↳ Depth {}: Path {} (Target [{}]: \"{}\")",
+                path.len(),
+                path,
+                label_str,
+                desc
+            );
         }
     }
     println!();

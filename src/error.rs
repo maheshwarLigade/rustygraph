@@ -25,6 +25,12 @@ pub enum GraphError {
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 
+    #[error("Authentication error: {0}")]
+    Authentication(String),
+
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
+
     #[error("Quorum unavailable: {0}")]
     QuorumUnavailable(String),
 

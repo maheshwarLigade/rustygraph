@@ -35,10 +35,17 @@ fn test_ap_mode_100_percent_availability_when_isolated() {
     };
 
     let res = n1.write(cmd);
-    assert!(res.is_ok(), "AP mode must guarantee 100% write availability even when isolated");
+    assert!(
+        res.is_ok(),
+        "AP mode must guarantee 100% write availability even when isolated"
+    );
     assert_eq!(n1.graph().node_count(), 1);
     assert_eq!(
-        n1.graph().get_node(NodeId(401)).unwrap().prop("title").unwrap(),
+        n1.graph()
+            .get_node(NodeId(401))
+            .unwrap()
+            .prop("title")
+            .unwrap(),
         &PropertyValue::from("Offline Document")
     );
 }
@@ -58,7 +65,10 @@ fn test_ap_cross_partition_concurrent_writes_and_anti_entropy_convergence() {
 
     // Client 1 writes to Partition A (Node 1)
     let mut props_a = HashMap::new();
-    props_a.insert("name".to_string(), PropertyValue::from("User from Partition A"));
+    props_a.insert(
+        "name".to_string(),
+        PropertyValue::from("User from Partition A"),
+    );
     let cmd_a = ClusterCommand::CreateNode {
         id: NodeId(501),
         labels: vec!["User".to_string()],
@@ -69,7 +79,10 @@ fn test_ap_cross_partition_concurrent_writes_and_anti_entropy_convergence() {
 
     // Client 2 concurrently writes to Partition B (Node 3)
     let mut props_b = HashMap::new();
-    props_b.insert("name".to_string(), PropertyValue::from("User from Partition B"));
+    props_b.insert(
+        "name".to_string(),
+        PropertyValue::from("User from Partition B"),
+    );
     let cmd_b = ClusterCommand::CreateNode {
         id: NodeId(502),
         labels: vec!["User".to_string()],
@@ -107,10 +120,16 @@ fn test_ap_cross_partition_concurrent_writes_and_anti_entropy_convergence() {
         assert!(node.graph().contains_node(NodeId(502)));
 
         let u1 = node.graph().get_node(NodeId(501)).unwrap();
-        assert_eq!(u1.prop("name").unwrap(), &PropertyValue::from("User from Partition A"));
+        assert_eq!(
+            u1.prop("name").unwrap(),
+            &PropertyValue::from("User from Partition A")
+        );
 
         let u2 = node.graph().get_node(NodeId(502)).unwrap();
-        assert_eq!(u2.prop("name").unwrap(), &PropertyValue::from("User from Partition B"));
+        assert_eq!(
+            u2.prop("name").unwrap(),
+            &PropertyValue::from("User from Partition B")
+        );
     }
 }
 

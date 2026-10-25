@@ -15,4 +15,4 @@ pub use arena::SlotArena;
 pub use db::{DatabaseConfig, DatabaseStats, StandaloneDatabase};
 pub use snapshot::{SnapshotManager, SnapshotMetadata};
 pub use transaction::{Transaction, TransactionManager, TransactionStatus};
-pub use wal::{crc32, FsyncPolicy, WalManager, WalOp, WalRecord};
+pub use wal::{FsyncPolicy, WalManager, WalOp, WalRecord, crc32};

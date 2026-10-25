@@ -86,24 +86,28 @@ pub mod prelude {
     };
     pub use crate::concurrent::ConcurrentGraph;
     pub use crate::cypher::CypherResult;
+    pub use crate::db::{DatabaseConfig, DatabaseStats, StandaloneDatabase};
+    pub use crate::distributed::{
+        ClusterMessage, ClusterPeer, ClusterStatus, DistributedClusterNode,
+    };
     pub use crate::error::{GraphError, Result};
     pub use crate::graph::Graph;
     pub use crate::id::{NodeId, RelId};
-    pub use crate::index::{tokenize, FulltextIndex, FulltextSearchResult, IndexKey, IndexManager, PropertyIndex};
+    pub use crate::index::{
+        FulltextIndex, FulltextSearchResult, IndexKey, IndexManager, PropertyIndex, tokenize,
+    };
+    pub use crate::mcp::{McpBackend, McpServer};
     pub use crate::model::{Direction, Node, Properties, Relationship};
     pub use crate::query::{QueryBuilder, QueryContext};
-    pub use crate::db::{DatabaseConfig, DatabaseStats, StandaloneDatabase};
-    pub use crate::distributed::{ClusterMessage, ClusterPeer, ClusterStatus, DistributedClusterNode};
     pub use crate::serde_export::GraphDump;
     pub use crate::server::{ServerConfig, StandaloneServer};
     pub use crate::snapshot::{SnapshotManager, SnapshotMetadata};
     pub use crate::stats::GraphStats;
     pub use crate::transaction::{Transaction, TransactionManager, TransactionStatus};
     pub use crate::traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
-    pub use crate::mcp::{McpBackend, McpServer};
     pub use crate::value::PropertyValue;
     pub use crate::vector::{VectorIndex, VectorSearchResult, VectorSimilarity};
-    pub use crate::wal::{crc32, FsyncPolicy, WalManager, WalOp, WalRecord};
+    pub use crate::wal::{FsyncPolicy, WalManager, WalOp, WalRecord, crc32};
 }
 
 pub use algo::{
@@ -118,7 +122,9 @@ pub use distributed::{ClusterPeer, ClusterStatus, DistributedClusterNode};
 pub use error::{GraphError, Result};
 pub use graph::Graph;
 pub use id::{NodeId, RelId};
-pub use index::{tokenize, FulltextIndex, FulltextSearchResult, IndexKey, IndexManager, PropertyIndex};
+pub use index::{
+    FulltextIndex, FulltextSearchResult, IndexKey, IndexManager, PropertyIndex, tokenize,
+};
 pub use model::{Direction, Node, Properties, Relationship};
 pub use query::{QueryBuilder, QueryContext};
 pub use serde_export::GraphDump;
@@ -129,4 +135,3 @@ pub use traversal::{Path, PathSegment, TraversalOrder, Traverser, Uniqueness};
 pub use value::PropertyValue;
 pub use vector::{VectorIndex, VectorSearchResult, VectorSimilarity};
 pub use wal::{FsyncPolicy, WalManager, WalOp, WalRecord};
-

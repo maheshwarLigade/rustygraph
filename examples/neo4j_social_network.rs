@@ -101,9 +101,13 @@ fn main() -> Result<()> {
     // 5. Declarative Pattern Matching (Cypher-style)
     println!("\n[5] Declarative Pattern Match: Coworkers at Acme Corp");
     println!("    MATCH (u:User)-[:WORKS_AT]->(c:Company {{name: 'Acme AI Corp'}})");
-    let coworkers: Vec<(String, String)> = graph.query()
-        .match_node("u").with_label("User")
-        .outgoing("WORKS_AT", "c").with_label("Company").with_prop("name", "Acme AI Corp")
+    let coworkers: Vec<(String, String)> = graph
+        .query()
+        .match_node("u")
+        .with_label("User")
+        .outgoing("WORKS_AT", "c")
+        .with_label("Company")
+        .with_prop("name", "Acme AI Corp")
         .project(|ctx| {
             (
                 ctx.prop("u", "name").unwrap().as_str().unwrap().to_string(),
@@ -117,7 +121,8 @@ fn main() -> Result<()> {
 
     // 5b. Direct Cypher Query String execution!
     println!("\n[5b] Direct Cypher Query String execution:");
-    let cypher_query = "MATCH (u:User)-[:WORKS_AT]->(c:Company) WHERE u.age > 28 RETURN u.name, u.age, c.name";
+    let cypher_query =
+        "MATCH (u:User)-[:WORKS_AT]->(c:Company) WHERE u.age > 28 RETURN u.name, u.age, c.name";
     println!("    Query: {cypher_query}");
     let cypher_result = graph.cypher(cypher_query)?;
     println!("{cypher_result}");
@@ -130,17 +135,35 @@ fn main() -> Result<()> {
 
     for (id, score) in ranked_nodes.iter().take(3) {
         let node = graph.get_node(**id).unwrap();
-        let name = node.prop("name").map(|v| v.to_string()).unwrap_or_else(|| "Unknown".into());
+        let name = node
+            .prop("name")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "Unknown".into());
         println!("    Ranked Node {id} ({name}): PageRank Score = {score:.4}");
     }
 
     // 7. Graph Data Science: Shortest Path (Dijkstra weighted by relationship 'weight')
     println!("\n[7] Weighted Shortest Path: Alice -> Charlie");
-    if let Some((path, cost)) = algo::dijkstra_by_prop(&graph, alice, charlie, Direction::Outgoing, "weight") {
-        println!("    Optimal Path length: {} hops, Total Weight: {:.2}", path.len(), cost);
-        let node_names: Vec<String> = path.nodes().iter().map(|&nid| {
-            graph.get_node(nid).unwrap().prop("name").unwrap().to_string()
-        }).collect();
+    if let Some((path, cost)) =
+        algo::dijkstra_by_prop(&graph, alice, charlie, Direction::Outgoing, "weight")
+    {
+        println!(
+            "    Optimal Path length: {} hops, Total Weight: {:.2}",
+            path.len(),
+            cost
+        );
+        let node_names: Vec<String> = path
+            .nodes()
+            .iter()
+            .map(|&nid| {
+                graph
+                    .get_node(nid)
+                    .unwrap()
+                    .prop("name")
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
         println!("    Path: {}", node_names.join(" -> "));
     }
 

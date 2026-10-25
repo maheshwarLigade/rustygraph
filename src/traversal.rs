@@ -274,7 +274,13 @@ impl<'a> Traverser<'a> {
                     if can_expand {
                         let current_node = path.end_node();
                         let edges_res = match self.max_edges_per_node {
-                            Some(limit) => self.graph.incident_edges_paged(current_node, self.direction, None, 0, limit),
+                            Some(limit) => self.graph.incident_edges_paged(
+                                current_node,
+                                self.direction,
+                                None,
+                                0,
+                                limit,
+                            ),
                             None => self.graph.incident_edges(current_node, self.direction),
                         };
                         if let Ok(edges) = edges_res {
@@ -320,7 +326,13 @@ impl<'a> Traverser<'a> {
                     if can_expand {
                         let current_node = path.end_node();
                         let edges_res = match self.max_edges_per_node {
-                            Some(limit) => self.graph.incident_edges_paged(current_node, self.direction, None, 0, limit),
+                            Some(limit) => self.graph.incident_edges_paged(
+                                current_node,
+                                self.direction,
+                                None,
+                                0,
+                                limit,
+                            ),
                             None => self.graph.incident_edges(current_node, self.direction),
                         };
                         if let Ok(edges) = edges_res {

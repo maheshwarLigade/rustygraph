@@ -40,9 +40,11 @@ fn test_fulltext_index_basic_and_scoring() {
         .unwrap();
 
     // Create fulltext index on Article(content)
-    assert!(graph
-        .create_fulltext_index("article_content", "Article", "content")
-        .unwrap());
+    assert!(
+        graph
+            .create_fulltext_index("article_content", "Article", "content")
+            .unwrap()
+    );
     assert!(graph.has_fulltext_index("article_content"));
 
     // Search for "graph"
@@ -84,12 +86,16 @@ fn test_fulltext_index_mutation_and_cleanup() {
         })
         .unwrap();
 
-    assert!(graph
-        .create_fulltext_index("note_idx", "Note", "text")
-        .unwrap());
+    assert!(
+        graph
+            .create_fulltext_index("note_idx", "Note", "text")
+            .unwrap()
+    );
 
     // Matches initially
-    let hits = graph.query_fulltext_index("note_idx", "telemetry", 5).unwrap();
+    let hits = graph
+        .query_fulltext_index("note_idx", "telemetry", 5)
+        .unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].node_id, n1);
 
@@ -99,17 +105,23 @@ fn test_fulltext_index_mutation_and_cleanup() {
         .unwrap();
 
     // "telemetry" should no longer match
-    let hits_old = graph.query_fulltext_index("note_idx", "telemetry", 5).unwrap();
+    let hits_old = graph
+        .query_fulltext_index("note_idx", "telemetry", 5)
+        .unwrap();
     assert!(hits_old.is_empty());
 
     // "monitoring" should match
-    let hits_new = graph.query_fulltext_index("note_idx", "monitoring", 5).unwrap();
+    let hits_new = graph
+        .query_fulltext_index("note_idx", "monitoring", 5)
+        .unwrap();
     assert_eq!(hits_new.len(), 1);
     assert_eq!(hits_new[0].node_id, n1);
 
     // Delete node
     graph.delete_node(n1).unwrap();
-    let hits_deleted = graph.query_fulltext_index("note_idx", "monitoring", 5).unwrap();
+    let hits_deleted = graph
+        .query_fulltext_index("note_idx", "monitoring", 5)
+        .unwrap();
     assert!(hits_deleted.is_empty());
 }
 
@@ -180,13 +192,17 @@ fn test_standalone_database_fulltext_wal_persistence() {
         let n1 = db
             .create_node(
                 vec!["Doc".to_string()],
-                [("summary".to_string(), PropertyValue::from("Distributed graph storage with write-ahead log."))]
-                    .into_iter()
-                    .collect(),
+                [(
+                    "summary".to_string(),
+                    PropertyValue::from("Distributed graph storage with write-ahead log."),
+                )]
+                .into_iter()
+                .collect(),
             )
             .unwrap();
 
-        db.create_fulltext_index("doc_ft", "Doc", "summary").unwrap();
+        db.create_fulltext_index("doc_ft", "Doc", "summary")
+            .unwrap();
 
         let hits = db.query_fulltext_index("doc_ft", "write-ahead", 5).unwrap();
         assert_eq!(hits.len(), 1);

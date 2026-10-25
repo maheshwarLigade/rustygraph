@@ -408,15 +408,48 @@ rustygraph> MATCH (p:Person)-[:KNOWS]->(f:Person) RETURN p.name, f.name;
 └────────┴────────┘
 (1 row in 1.42ms)
 
+rustygraph> :explain MATCH (a:Person)-[:KNOWS]->(b) WHERE a.rank > 1 RETURN a.name, b.name
++--------------------+---------------------------------------------------------+
+| OPERATOR           | DETAILS                                                 |
++--------------------+---------------------------------------------------------+
+| ProduceResults     | Columns: [a.name, b.name]                               |
+|   Filter           | Predicate: (a.rank > 1)                                 |
+|     ExpandAll      | (a)-[:KNOWS]->(b)                                       |
+|       NodeScan     | Scan Label: Person                                      |
++--------------------+---------------------------------------------------------+
+
+rustygraph> :schema
+--- Graph Schema Catalog (HTTP 200) ---
+{
+  "nodes_total": 4,
+  "edges_total": 4,
+  "label_counts": { "Person": 4 },
+  "relationship_type_counts": { "KNOWS": 4 },
+  "property_indices": [
+    { "label": "Person", "property": "name", "unique": false }
+  ]
+}
+
+rustygraph> :algo pagerank {"damping": 0.85, "max_iterations": 20}
+--- Algorithm Result (HTTP 200) ---
+{
+  "algorithm": "pagerank",
+  "top_nodes": [
+    { "node_id": 4294967299, "score": 0.416, "properties": { "name": "Diana" } },
+    { "node_id": 4294967298, "score": 0.278, "properties": { "name": "Charlie" } }
+  ]
+}
+
 rustygraph> :stats
 --- Database Statistics (HTTP 200) ---
 {
-  "node_count": 2,
-  "edge_count": 1,
-  "current_wal_sequence": 3,
-  "last_checkpoint_sequence": 2,
-  "uncheckpointed_ops": 1,
-  "uptime_seconds": 45
+  "node_count": 4,
+  "edge_count": 4,
+  "estimated_memory_bytes": 65536,
+  "active_transactions": 0,
+  "current_wal_sequence": 8,
+  "last_checkpoint_sequence": 5,
+  "uncheckpointed_ops": 3
 }
 
 rustygraph> :cluster
@@ -432,18 +465,41 @@ rustygraph> :cluster
 }
 ```
 
+### 🎛️ Developer Studio & Web Cockpit
+Navigate to `http://localhost:8000/` or `http://localhost:8000/ui` in any modern web browser to open the zero-dependency embedded **RustyGraph Studio Cockpit**:
+- **Cypher Studio & Force-Directed Canvas**: Live visual graph exploration, node/edge inspection, inline editing/deletions, query history, and openCypher `EXPLAIN` query execution visualizer.
+- **Graph Algorithm Studio**: Interactive runner for PageRank, Shortest Path (BFS & Dijkstra), Centrality (Degree & Brandes Betweenness), Connected Components (WCC & SCC), and Jaccard Node Similarity.
+- **Schema & Index Management**: Graph structural catalog with real-time property, vector, and full-text index creation and deletion modals.
+- **Hybrid Search**: Side-by-side BM25 full-text keyword ranking and SIMD-accelerated vector semantic search testing.
+- **Live Telemetry & Transaction Monitor**: Real-time system gauges (memory, cache, WAL latency), active ACID snapshot isolation transaction inspection with live Commit/Rollback, on-demand checkpoints, and full JSON database export/import.
+- **Interactive REST API Sandbox**: In-browser API explorer with sample JSON payloads and live execution.
+
 ### HTTP REST API Endpoints
 
 | Method | Endpoint | Description | Sample Payload |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/cypher` | Execute an openCypher query (reads or mutations) | `{"query": "MATCH (n) RETURN n"}` |
+| `GET` | `/` or `/ui` | Embedded Interactive Web Studio Cockpit | `none` |
+| `GET` | `/metrics` | Prometheus telemetry metrics export | `none` |
+| `POST` | `/cypher` | Execute openCypher query (supports `EXPLAIN ` prefix) | `{"query": "MATCH (n) RETURN n"}` |
+| `POST` | `/cypher/explain` | Generate AST execution plan and ASCII operator tree | `{"query": "MATCH (a)-[:KNOWS]->(b) RETURN a, b"}` |
+| `GET` | `/schema` | Graph topology catalog, degrees, and active indexes | `none` |
+| `GET` | `/indexes` | Full index catalog (property, vector, fulltext) | `none` |
+| `POST` | `/indexes/property` | Create dynamic secondary B-tree property index | `{"label": "Person", "property": "name"}` |
+| `DELETE` | `/indexes/property/:label/:prop` | Drop secondary property index | `none` |
+| `DELETE` | `/vector/indexes/:name` | Drop vector similarity index | `none` |
+| `DELETE` | `/fulltext/indexes/:name` | Drop BM25 full-text index | `none` |
+| `POST` | `/algo/pagerank` | Compute PageRank or Personalized PageRank | `{"damping": 0.85, "max_iterations": 20}` |
+| `POST` | `/algo/shortest-path` | Unweighted (BFS) or weighted (Dijkstra) pathfinding | `{"source": 1, "target": 4, "algorithm": "dijkstra", "weight_property": "weight"}` |
+| `POST` | `/algo/centrality` | Compute Betweenness or Degree Centrality | `{"metric": "betweenness", "direction": "both", "normalized": true}` |
+| `POST` | `/algo/community` | Community detection (WCC or Tarjan SCC) | `{"algorithm": "wcc"}` |
+| `POST` | `/algo/similarity` | Jaccard node neighborhood similarity | `{"source": 1, "target": 2, "metric": "jaccard"}` |
 | `POST` | `/tx/begin` | Begin a multi-statement ACID transaction | `{"timeout_ms": 30000}` |
 | `POST` | `/tx/:id/cypher` | Execute a Cypher query inside an active transaction | `{"query": "CREATE (u:User {name: 'Alice'})"}` |
 | `POST` | `/tx/:id/commit` | Commit transaction to WAL and live database | `none` |
 | `POST` | `/tx/:id/rollback` | Rollback transaction, discarding staged changes | `none` |
 | `GET` | `/tx/list` | List active transactions and remaining timeouts | `none` |
 | `GET` | `/health` | Server health check | `none` |
-| `GET` | `/stats` | Database nodes, edges, WAL metrics | `none` |
+| `GET` | `/stats` | Database nodes, edges, memory, and WAL metrics | `none` |
 | `POST` | `/nodes` | Create labeled node with properties | `{"labels": ["User"], "properties": {"name": "Alice"}}` |
 | `GET` | `/nodes/:id` | Fetch node properties & adjacent edges | `none` |
 | `DELETE` | `/nodes/:id` | Cascading delete node & relationships | `none` |
@@ -456,6 +512,8 @@ rustygraph> :cluster
 | `DELETE` | `/edges/:id` | Delete relationship | `none` |
 | `POST` | `/vector/indexes` | Create vector similarity index | `{"name": "v", "label": "Doc", "prop_key": "vec", "dimension": 3}` |
 | `POST` | `/vector/search` | Top-k vector nearest-neighbor search | `{"index": "v", "k": 5, "vector": [1.0, 0.0, 0.0]}` |
+| `POST` | `/fulltext/indexes` | Create inverted fulltext index | `{"name": "ft", "label": "Article", "prop_key": "body"}` |
+| `POST` | `/fulltext/search` | BM25 relevance keyword search | `{"index": "ft", "query": "graph database", "limit": 10}` |
 | `POST` | `/checkpoint` | Force atomic snapshot & truncate WAL | `none` |
 | `GET` | `/export` | Full graph topology JSON dump | `none` |
 | `POST` | `/import` | Restore full database from JSON | Raw JSON dump string |

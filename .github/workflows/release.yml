@@ -1,0 +1,224 @@
+name: Release (Multi-Platform Artifacts)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v0.1.0)'
+        required: false
+        type: string
+        default: ''
+      draft:
+        description: 'Create as Draft Release'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Mark as Pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  determine-tag:
+    name: Determine Release Tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.get_tag.outputs.tag }}
+    steps:
+      - name: Extract Tag Name
+        id: get_tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag_name }}" ]; then
+            TAG="${{ inputs.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v0.1.0-dev.${{ github.run_number }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: $TAG"
+
+  build-release-binaries:
+    name: Build (${{ matrix.target }})
+    needs: determine-tag
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 glibc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_format: tar.gz
+            use_musl: false
+          # Linux x86_64 musl (fully static)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            archive_format: tar.gz
+            use_musl: true
+          # Linux ARM64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive_format: tar.gz
+            use_musl: false
+          # macOS Intel
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive_format: tar.gz
+            use_musl: false
+          # macOS Apple Silicon
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive_format: tar.gz
+            use_musl: false
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_format: zip
+            use_musl: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install musl tools (Linux musl)
+        if: matrix.use_musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build release binaries and libraries
+        run: cargo build --release --target ${{ matrix.target }} --bins
+
+      - name: Package Release Assets (Linux / macOS)
+        if: matrix.archive_format == 'tar.gz'
+        shell: bash
+        run: |
+          TAG="${{ needs.determine-tag.outputs.tag }}"
+          TARGET="${{ matrix.target }}"
+          DIST_DIR="rustygraph-${TAG}-${TARGET}"
+          mkdir -p "${DIST_DIR}/bin" "${DIST_DIR}/lib"
+
+          # Copy binaries
+          cp target/${TARGET}/release/rustygraph-server "${DIST_DIR}/bin/"
+          cp target/${TARGET}/release/rustygraph-cli "${DIST_DIR}/bin/"
+          cp target/${TARGET}/release/rustygraph-mcp "${DIST_DIR}/bin/"
+
+          # Strip binaries on Linux and macOS
+          strip "${DIST_DIR}/bin/rustygraph-server" || true
+          strip "${DIST_DIR}/bin/rustygraph-cli" || true
+          strip "${DIST_DIR}/bin/rustygraph-mcp" || true
+
+          # Copy shared libraries if built
+          cp target/${TARGET}/release/librusty_graph.* "${DIST_DIR}/lib/" 2>/dev/null || true
+
+          # Copy docs and licenses
+          cp README.md LICENSE "${DIST_DIR}/"
+
+          # Create compressed archive
+          tar -czvf "${DIST_DIR}.tar.gz" "${DIST_DIR}"
+
+          # Compute SHA-256 checksum
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${DIST_DIR}.tar.gz" > "${DIST_DIR}.tar.gz.sha256"
+          else
+            shasum -a 256 "${DIST_DIR}.tar.gz" > "${DIST_DIR}.tar.gz.sha256"
+          fi
+
+          mkdir -p output
+          mv "${DIST_DIR}.tar.gz" "${DIST_DIR}.tar.gz.sha256" output/
+
+      - name: Package Release Assets (Windows)
+        if: matrix.archive_format == 'zip'
+        shell: pwsh
+        run: |
+          $TAG = "${{ needs.determine-tag.outputs.tag }}"
+          $TARGET = "${{ matrix.target }}"
+          $DIST_DIR = "rustygraph-${TAG}-${TARGET}"
+          New-Item -ItemType Directory -Path "${DIST_DIR}\bin", "${DIST_DIR}\lib" -Force
+
+          Copy-Item target\${TARGET}\release\rustygraph-server.exe "${DIST_DIR}\bin\"
+          Copy-Item target\${TARGET}\release\rustygraph-cli.exe "${DIST_DIR}\bin\"
+          Copy-Item target\${TARGET}\release\rustygraph-mcp.exe "${DIST_DIR}\bin\"
+          Copy-Item target\${TARGET}\release\rusty_graph.dll "${DIST_DIR}\lib\" -ErrorAction SilentlyContinue
+          Copy-Item README.md, LICENSE "${DIST_DIR}\"
+
+          Compress-Archive -Path "${DIST_DIR}" -DestinationPath "${DIST_DIR}.zip"
+
+          $hash = (Get-FileHash -Path "${DIST_DIR}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${DIST_DIR}.zip" | Out-File -Encoding utf8 "${DIST_DIR}.zip.sha256"
+
+          New-Item -ItemType Directory -Path output -Force
+          Move-Item "${DIST_DIR}.zip", "${DIST_DIR}.zip.sha256" output\
+
+      - name: Upload Platform Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: output/*
+          retention-days: 30
+
+  publish-github-release:
+    name: Publish GitHub Release & Assets
+    needs: [determine-tag, build-release-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate Checksum Manifest
+        shell: bash
+        run: |
+          cd release-assets
+          echo "### Release Artifacts and SHA-256 Checksums" > SHA256SUMS.txt
+          echo "" >> SHA256SUMS.txt
+          for file in *.tar.gz *.zip; do
+            if [ -f "$file" ]; then
+              sha256sum "$file" >> SHA256SUMS.txt
+            fi
+          done
+          cat SHA256SUMS.txt
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.determine-tag.outputs.tag }}
+          name: RustyGraph ${{ needs.determine-tag.outputs.tag }}
+          draft: ${{ inputs.draft || false }}
+          prerelease: ${{ inputs.prerelease || false }}
+          generate_release_notes: true
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/*.sha256
+            release-assets/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

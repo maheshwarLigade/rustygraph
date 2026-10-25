@@ -1,20 +1,21 @@
-use crate::concurrent::ConcurrentGraph;
-use crate::cypher::{is_cypher_mutation, CypherResult};
-use crate::error::{Error, GraphError, Result};
-use crate::graph::Graph;
-use crate::id::{NodeId, RelId};
-use crate::model::{Node, Relationship};
-use crate::value::PropertyValue;
-use crate::index::FulltextSearchResult;
-use crate::vector::{VectorSearchResult, VectorSimilarity};
 use super::snapshot::SnapshotManager;
 use super::transaction::TransactionManager;
 use super::wal::{FsyncPolicy, WalManager, WalOp};
+use crate::concurrent::ConcurrentGraph;
+use crate::cypher::{CypherResult, is_cypher_mutation};
+use crate::error::{Error, GraphError, Result};
+use crate::graph::Graph;
+use crate::id::{NodeId, RelId};
+use crate::index::FulltextSearchResult;
+use crate::model::{Direction, Node, Relationship};
+use crate::query::cypher::QueryPlan;
+use crate::value::PropertyValue;
+use crate::vector::{VectorSearchResult, VectorSimilarity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// Database configuration options for standalone deployment.
@@ -46,6 +47,16 @@ pub struct DatabaseStats {
     pub last_checkpoint_sequence: u64,
     pub uncheckpointed_ops: u64,
     pub uptime_seconds: u64,
+    #[serde(default)]
+    pub estimated_memory_bytes: u64,
+    #[serde(default)]
+    pub active_transactions: usize,
+    #[serde(default)]
+    pub vector_index_count: usize,
+    #[serde(default)]
+    pub fulltext_index_count: usize,
+    #[serde(default)]
+    pub property_index_count: usize,
 }
 
 /// Standalone, crash-resilient NoSQL property graph database engine with WAL durability.
@@ -119,10 +130,21 @@ impl StandaloneDatabase {
 
     /// Returns the current statistics of the database.
     pub fn stats(&self) -> DatabaseStats {
-        let (node_count, edge_count) = self.graph.with_read(|g| (g.node_count(), g.edge_count()));
+        let (node_count, edge_count, v_count, ft_count, prop_count) = self.graph.with_read(|g| {
+            (
+                g.node_count(),
+                g.edge_count(),
+                g.vector_indices().count(),
+                g.fulltext_indices().count(),
+                g.property_indices().len(),
+            )
+        });
         let current_seq = self.wal.current_sequence();
         let last_snap = self.last_checkpoint_seq.load(Ordering::Relaxed);
         let uncheckpointed = current_seq.saturating_sub(last_snap);
+        let active_tx = self.tx_manager.list_active().len();
+        let estimated_mem =
+            (node_count * 128 + edge_count * 96 + v_count * 1024 + ft_count * 2048 + 4096) as u64;
 
         DatabaseStats {
             node_count: node_count as u64,
@@ -131,6 +153,11 @@ impl StandaloneDatabase {
             last_checkpoint_sequence: last_snap,
             uncheckpointed_ops: uncheckpointed,
             uptime_seconds: self.start_time.elapsed().as_secs(),
+            estimated_memory_bytes: estimated_mem,
+            active_transactions: active_tx,
+            vector_index_count: v_count,
+            fulltext_index_count: ft_count,
+            property_index_count: prop_count,
         }
     }
 
@@ -139,7 +166,11 @@ impl StandaloneDatabase {
     // =========================================================================
 
     /// Creates a new node with durability guarantees.
-    pub fn create_node(&self, labels: Vec<String>, properties: HashMap<String, PropertyValue>) -> Result<NodeId> {
+    pub fn create_node(
+        &self,
+        labels: Vec<String>,
+        properties: HashMap<String, PropertyValue>,
+    ) -> Result<NodeId> {
         // Reserve NodeId in graph memory
         let node_id = self.graph.with_write(|g| {
             g.create_node_with(|n| {
@@ -224,7 +255,10 @@ impl StandaloneDatabase {
     }
 
     /// High-throughput batch ingestion of nodes with atomic durability.
-    pub fn bulk_import_nodes(&self, items: Vec<(Vec<String>, HashMap<String, PropertyValue>)>) -> Result<Vec<NodeId>> {
+    pub fn bulk_import_nodes(
+        &self,
+        items: Vec<(Vec<String>, HashMap<String, PropertyValue>)>,
+    ) -> Result<Vec<NodeId>> {
         let mut ids = Vec::with_capacity(items.len());
         self.graph.with_write(|g| {
             for (labels, props) in &items {
@@ -255,7 +289,10 @@ impl StandaloneDatabase {
     }
 
     /// High-throughput batch ingestion of edges with atomic durability.
-    pub fn bulk_import_edges(&self, items: Vec<(NodeId, NodeId, String, HashMap<String, PropertyValue>)>) -> Result<Vec<RelId>> {
+    pub fn bulk_import_edges(
+        &self,
+        items: Vec<(NodeId, NodeId, String, HashMap<String, PropertyValue>)>,
+    ) -> Result<Vec<RelId>> {
         let mut ids = Vec::with_capacity(items.len());
         self.graph.with_write(|g| {
             for (src, dst, rel_type, props) in &items {
@@ -309,7 +346,9 @@ impl StandaloneDatabase {
         query_str: &str,
         params: &HashMap<String, PropertyValue>,
     ) -> Result<CypherResult> {
-        let res = self.graph.with_write(|g| g.cypher_with_params(query_str, params))?;
+        let res = self
+            .graph
+            .with_write(|g| g.cypher_with_params(query_str, params))?;
         if is_cypher_mutation(query_str) {
             self.wal.append(WalOp::CypherQuery {
                 query: query_str.to_string(),
@@ -333,10 +372,12 @@ impl StandaloneDatabase {
 
     /// Commits an active transaction, applying staged mutations to live database and WAL.
     pub fn commit_transaction(&self, tx_id: u64) -> Result<()> {
-        let tx = self
-            .tx_manager
-            .remove(tx_id)?
-            .ok_or_else(|| GraphError::InvalidOperation(format!("Transaction {} not found or already closed", tx_id)))?;
+        let tx = self.tx_manager.remove(tx_id)?.ok_or_else(|| {
+            GraphError::InvalidOperation(format!(
+                "Transaction {} not found or already closed",
+                tx_id
+            ))
+        })?;
 
         if tx.created_at.elapsed() > tx.timeout {
             return Err(GraphError::InvalidOperation(format!(
@@ -389,9 +430,8 @@ impl StandaloneDatabase {
         dimension: usize,
         similarity: VectorSimilarity,
     ) -> Result<()> {
-        self.graph.with_write(|g| {
-            g.create_vector_index(name, label, prop_key, dimension, similarity)
-        })?;
+        self.graph
+            .with_write(|g| g.create_vector_index(name, label, prop_key, dimension, similarity))?;
 
         let op = WalOp::CreateVectorIndex {
             name: name.to_string(),
@@ -407,20 +447,20 @@ impl StandaloneDatabase {
     }
 
     /// Queries a vector index for nearest neighbors.
-    pub fn query_vector_index(&self, name: &str, k: usize, query_vector: &[f32]) -> Result<Vec<VectorSearchResult>> {
-        self.graph.with_read(|g| g.query_vector_index(name, k, query_vector))
+    pub fn query_vector_index(
+        &self,
+        name: &str,
+        k: usize,
+        query_vector: &[f32],
+    ) -> Result<Vec<VectorSearchResult>> {
+        self.graph
+            .with_read(|g| g.query_vector_index(name, k, query_vector))
     }
 
     /// Creates an inverted full-text keyword search index on a label and property key.
-    pub fn create_fulltext_index(
-        &self,
-        name: &str,
-        label: &str,
-        property_key: &str,
-    ) -> Result<()> {
-        self.graph.with_write(|g| {
-            g.create_fulltext_index(name, label, property_key)
-        })?;
+    pub fn create_fulltext_index(&self, name: &str, label: &str, property_key: &str) -> Result<()> {
+        self.graph
+            .with_write(|g| g.create_fulltext_index(name, label, property_key))?;
 
         let op = WalOp::CreateFulltextIndex {
             name: name.to_string(),
@@ -440,7 +480,8 @@ impl StandaloneDatabase {
         query: &str,
         top_k: usize,
     ) -> Result<Vec<FulltextSearchResult>> {
-        self.graph.with_read(|g| g.query_fulltext_index(name, query, top_k))
+        self.graph
+            .with_read(|g| g.query_fulltext_index(name, query, top_k))
     }
 
     /// Queries a full-text inverted index using prefix matching.
@@ -450,7 +491,8 @@ impl StandaloneDatabase {
         prefix: &str,
         top_k: usize,
     ) -> Result<Vec<FulltextSearchResult>> {
-        self.graph.with_read(|g| g.query_fulltext_prefix(name, prefix, top_k))
+        self.graph
+            .with_read(|g| g.query_fulltext_prefix(name, prefix, top_k))
     }
 
     /// Hybrid Graph Search: full-text keyword search + graph topology traversal.
@@ -461,7 +503,294 @@ impl StandaloneDatabase {
         top_k: usize,
         depth: usize,
     ) -> Result<Vec<(FulltextSearchResult, Vec<crate::traversal::Path>)>> {
-        self.graph.with_read(|g| g.hybrid_search_and_traverse(name, query, top_k, depth))
+        self.graph
+            .with_read(|g| g.hybrid_search_and_traverse(name, query, top_k, depth))
+    }
+
+    // =========================================================================
+    // Query Optimization & EXPLAIN Execution Plan
+    // =========================================================================
+
+    /// Returns the execution plan tree for an openCypher query without executing it.
+    pub fn explain_cypher(&self, query_str: &str) -> Result<QueryPlan> {
+        self.graph.with_read(|g| g.explain_cypher(query_str))
+    }
+
+    // =========================================================================
+    // Secondary Index Management
+    // =========================================================================
+
+    /// Creates a secondary property index on (label, property_key) with durability.
+    pub fn create_property_index(&self, label: &str, property_key: &str) -> Result<bool> {
+        let created = self
+            .graph
+            .with_write(|g| g.create_index(label, property_key))?;
+        if created {
+            self.wal.append(WalOp::CreatePropertyIndex {
+                label: label.to_string(),
+                property_key: property_key.to_string(),
+            })?;
+            self.track_operation();
+        }
+        Ok(created)
+    }
+
+    /// Drops a secondary property index with durability.
+    pub fn drop_property_index(&self, label: &str, property_key: &str) -> Result<bool> {
+        let dropped = self.graph.with_write(|g| g.drop_index(label, property_key));
+        if dropped {
+            self.wal.append(WalOp::DropPropertyIndex {
+                label: label.to_string(),
+                property_key: property_key.to_string(),
+            })?;
+            self.track_operation();
+        }
+        Ok(dropped)
+    }
+
+    /// Drops a vector index with durability.
+    pub fn drop_vector_index(&self, name: &str) -> Result<bool> {
+        let dropped = self.graph.with_write(|g| g.drop_vector_index(name));
+        if dropped {
+            self.wal.append(WalOp::DropVectorIndex {
+                name: name.to_string(),
+            })?;
+            self.track_operation();
+        }
+        Ok(dropped)
+    }
+
+    /// Drops a full-text index with durability.
+    pub fn drop_fulltext_index(&self, name: &str) -> Result<bool> {
+        let dropped = self.graph.with_write(|g| g.drop_fulltext_index(name));
+        if dropped {
+            self.wal.append(WalOp::DropFulltextIndex {
+                name: name.to_string(),
+            })?;
+            self.track_operation();
+        }
+        Ok(dropped)
+    }
+
+    /// Introspects full graph schema including labels, types, properties, and active indexes.
+    pub fn schema(&self) -> serde_json::Value {
+        self.graph.with_read(|g| {
+            let stats = g.stats();
+            let mut vector_indices_info = Vec::new();
+            for v_idx in g.vector_indices() {
+                vector_indices_info.push(serde_json::json!({
+                    "name": v_idx.name,
+                    "label": v_idx.label,
+                    "property_key": v_idx.property_key,
+                    "dimensions": v_idx.dimensions,
+                    "metric": format!("{:?}", v_idx.metric),
+                    "indexed_count": v_idx.len()
+                }));
+            }
+
+            let mut fulltext_indices_info = Vec::new();
+            for ft_idx in g.fulltext_indices() {
+                fulltext_indices_info.push(serde_json::json!({
+                    "name": ft_idx.name,
+                    "label": ft_idx.label,
+                    "property_key": ft_idx.property_key,
+                    "indexed_documents": ft_idx.len()
+                }));
+            }
+
+            let mut prop_indices_info = Vec::new();
+            for (lbl, prop, is_uniq) in g.property_indices() {
+                prop_indices_info.push(serde_json::json!({
+                    "label": lbl,
+                    "property": prop,
+                    "unique": is_uniq
+                }));
+            }
+
+            serde_json::json!({
+                "nodes_total": stats.node_count,
+                "edges_total": stats.edge_count,
+                "density": stats.density,
+                "average_degree": stats.average_degree,
+                "isolated_nodes": stats.isolated_nodes,
+                "self_loops": stats.self_loops,
+                "label_counts": stats.label_counts,
+                "relationship_type_counts": stats.type_counts,
+                "property_indices": prop_indices_info,
+                "vector_indices": vector_indices_info,
+                "fulltext_indices": fulltext_indices_info
+            })
+        })
+    }
+
+    /// Returns list of all active indexes (property, vector, fulltext).
+    pub fn list_indexes(&self) -> serde_json::Value {
+        self.graph.with_read(|g| {
+            let props: Vec<_> = g.property_indices().into_iter().map(|(l, p, u)| {
+                serde_json::json!({ "type": "property", "label": l, "property": p, "unique": u })
+            }).collect();
+            let vectors: Vec<_> = g
+                .vector_indices()
+                .map(|v| {
+                    serde_json::json!({
+                        "type": "vector",
+                        "name": v.name,
+                        "label": v.label,
+                        "property_key": v.property_key,
+                        "dimensions": v.dimensions,
+                        "metric": format!("{:?}", v.metric),
+                        "indexed_count": v.len()
+                    })
+                })
+                .collect();
+            let fulltexts: Vec<_> = g
+                .fulltext_indices()
+                .map(|f| {
+                    serde_json::json!({
+                        "type": "fulltext",
+                        "name": f.name,
+                        "label": f.label,
+                        "property_key": f.property_key,
+                        "indexed_documents": f.len()
+                    })
+                })
+                .collect();
+
+            serde_json::json!({
+                "property_indices": props,
+                "vector_indices": vectors,
+                "fulltext_indices": fulltexts
+            })
+        })
+    }
+
+    // =========================================================================
+    // Graph Algorithms (In-Memory Engine Analytics)
+    // =========================================================================
+
+    /// Computes PageRank centrality scores for all nodes.
+    pub fn run_pagerank(&self, damping: f64, max_iter: usize, tol: f64) -> Vec<(u64, f64)> {
+        self.graph.with_read(|g| {
+            let scores = crate::algo::pagerank(g, damping, max_iter, tol);
+            let mut sorted: Vec<(u64, f64)> =
+                scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
+            sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
+            sorted
+        })
+    }
+
+    /// Computes Personalized PageRank centrality scores relative to seed nodes.
+    pub fn run_personalized_pagerank(
+        &self,
+        seeds: &[NodeId],
+        damping: f64,
+        max_iter: usize,
+        tol: f64,
+    ) -> Vec<(u64, f64)> {
+        self.graph.with_read(|g| {
+            let scores = crate::algo::personalized_pagerank(g, seeds, damping, max_iter, tol);
+            let mut sorted: Vec<(u64, f64)> =
+                scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
+            sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
+            sorted
+        })
+    }
+
+    /// Computes Betweenness Centrality scores for all nodes.
+    pub fn run_betweenness_centrality(
+        &self,
+        direction: Direction,
+        normalized: bool,
+    ) -> Vec<(u64, f64)> {
+        self.graph.with_read(|g| {
+            let scores = crate::algo::betweenness_centrality(g, direction, normalized);
+            let mut sorted: Vec<(u64, f64)> =
+                scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
+            sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
+            sorted
+        })
+    }
+
+    /// Computes Degree Centrality for all nodes in the given direction.
+    pub fn run_degree_centrality(&self, direction: Direction) -> Vec<(u64, usize)> {
+        self.graph.with_read(|g| {
+            let scores = crate::algo::degree_centrality(g, direction);
+            let mut sorted: Vec<(u64, usize)> =
+                scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
+            sorted.sort_by(|a, b| b.1.cmp(&a.1));
+            sorted
+        })
+    }
+
+    /// Computes unweighted Shortest Path between source and target using BFS.
+    pub fn run_shortest_path_bfs(
+        &self,
+        source: NodeId,
+        target: NodeId,
+        direction: Direction,
+    ) -> Option<crate::traversal::Path> {
+        self.graph
+            .with_read(|g| crate::algo::shortest_path_bfs(g, source, target, direction))
+    }
+
+    /// Computes weighted Shortest Path using Dijkstra algorithm on relationship property.
+    pub fn run_dijkstra(
+        &self,
+        source: NodeId,
+        target: NodeId,
+        weight_prop: &str,
+        direction: Direction,
+    ) -> Option<(crate::traversal::Path, f64)> {
+        self.graph
+            .with_read(|g| crate::algo::dijkstra_by_prop(g, source, target, direction, weight_prop))
+    }
+
+    /// Computes Connected Component clusters ("wcc" or "scc").
+    pub fn run_community_detection(&self, algo: &str) -> Result<Vec<Vec<u64>>> {
+        self.graph
+            .with_read(|g| match algo.to_lowercase().as_str() {
+                "scc" => {
+                    let comps = crate::algo::strongly_connected_components(g);
+                    Ok(comps
+                        .into_iter()
+                        .map(|set| set.into_iter().map(|id| id.raw()).collect())
+                        .collect())
+                }
+                _ => {
+                    let comps = crate::algo::weakly_connected_components(g);
+                    Ok(comps
+                        .into_iter()
+                        .map(|set| set.into_iter().map(|id| id.raw()).collect())
+                        .collect())
+                }
+            })
+    }
+
+    /// Computes Jaccard Similarity or Common Neighbors between two nodes.
+    pub fn run_similarity(
+        &self,
+        n1: NodeId,
+        n2: NodeId,
+        metric: &str,
+        direction: Direction,
+    ) -> Result<serde_json::Value> {
+        self.graph.with_read(|g| {
+            if metric.eq_ignore_ascii_case("common_neighbors") {
+                let neighbors = crate::algo::common_neighbors(g, n1, n2, direction);
+                let ids: Vec<u64> = neighbors.into_iter().map(|id| id.raw()).collect();
+                Ok(serde_json::json!({
+                    "metric": "common_neighbors",
+                    "count": ids.len(),
+                    "common_neighbors": ids,
+                }))
+            } else {
+                let score = crate::algo::jaccard_similarity(g, n1, n2, direction);
+                Ok(serde_json::json!({
+                    "metric": "jaccard_similarity",
+                    "score": score,
+                }))
+            }
+        })
     }
 
     // =========================================================================
@@ -479,7 +808,8 @@ impl StandaloneDatabase {
         })?;
 
         self.wal.truncate_up_to(current_seq)?;
-        self.last_checkpoint_seq.store(current_seq, Ordering::SeqCst);
+        self.last_checkpoint_seq
+            .store(current_seq, Ordering::SeqCst);
         self.ops_since_checkpoint.store(0, Ordering::SeqCst);
 
         Ok(current_seq)
@@ -494,7 +824,9 @@ impl StandaloneDatabase {
 
     fn apply_wal_op(graph: &mut Graph, op: WalOp) -> Result<()> {
         match op {
-            WalOp::CreateNode { labels, properties, .. } => {
+            WalOp::CreateNode {
+                labels, properties, ..
+            } => {
                 graph.create_node_with(|n| {
                     for l in labels {
                         n.add_label(l);
@@ -514,7 +846,13 @@ impl StandaloneDatabase {
                     }
                 }
             }
-            WalOp::CreateEdge { source, target, rel_type, properties, .. } => {
+            WalOp::CreateEdge {
+                source,
+                target,
+                rel_type,
+                properties,
+                ..
+            } => {
                 let _ = graph.create_edge_with(NodeId(source), NodeId(target), &rel_type, |r| {
                     for (k, v) in properties {
                         r.set_prop(k, v);
@@ -531,11 +869,39 @@ impl StandaloneDatabase {
                     }
                 }
             }
-            WalOp::CreateVectorIndex { name, label, prop_key, dimension, similarity } => {
+            WalOp::CreateVectorIndex {
+                name,
+                label,
+                prop_key,
+                dimension,
+                similarity,
+            } => {
                 let _ = graph.create_vector_index(&name, &label, &prop_key, dimension, similarity);
             }
-            WalOp::CreateFulltextIndex { name, label, property_key } => {
+            WalOp::CreateFulltextIndex {
+                name,
+                label,
+                property_key,
+            } => {
                 let _ = graph.create_fulltext_index(&name, &label, &property_key);
+            }
+            WalOp::CreatePropertyIndex {
+                label,
+                property_key,
+            } => {
+                let _ = graph.create_index(&label, &property_key);
+            }
+            WalOp::DropPropertyIndex {
+                label,
+                property_key,
+            } => {
+                let _ = graph.drop_index(&label, &property_key);
+            }
+            WalOp::DropVectorIndex { name } => {
+                let _ = graph.drop_vector_index(&name);
+            }
+            WalOp::DropFulltextIndex { name } => {
+                let _ = graph.drop_fulltext_index(&name);
             }
             WalOp::CypherQuery { query } => {
                 let _ = graph.cypher(&query);

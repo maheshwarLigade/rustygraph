@@ -94,8 +94,7 @@ impl Graph {
         // Validate unique constraints across all labels and properties
         for label in &temp_node.labels {
             for (key, val) in temp_node.properties.iter() {
-                self.index_manager
-                    .validate_unique(label, key, val, None)?;
+                self.index_manager.validate_unique(label, key, val, None)?;
             }
         }
 
@@ -316,8 +315,7 @@ impl Graph {
 
             // Deindex all properties under this removed label
             for (key, val) in rec.node.properties.iter() {
-                self.index_manager
-                    .deindex_property(label, key, val, id);
+                self.index_manager.deindex_property(label, key, val, id);
             }
 
             // Remove from vector indices for this label
@@ -421,8 +419,7 @@ impl Graph {
         let old_val = rec.node.remove_prop(key);
         if let Some(old) = &old_val {
             for label in &rec.node.labels {
-                self.index_manager
-                    .deindex_property(label, key, old, id);
+                self.index_manager.deindex_property(label, key, old, id);
             }
         }
 
@@ -461,8 +458,7 @@ impl Graph {
             }
 
             for (key, val) in rec.node.properties.iter() {
-                self.index_manager
-                    .deindex_property(label, key, val, id);
+                self.index_manager.deindex_property(label, key, val, id);
             }
         }
 
@@ -555,10 +551,7 @@ impl Graph {
         target_rec.incoming.push(edge_id);
 
         // Update relationship type index
-        self.type_index
-            .entry(type_str)
-            .or_default()
-            .insert(edge_id);
+        self.type_index.entry(type_str).or_default().insert(edge_id);
 
         Ok(edge_id)
     }
@@ -814,11 +807,7 @@ impl Graph {
     }
 
     /// Iterate over references to relationships connected to a node in a given direction.
-    pub fn incident_edges(
-        &self,
-        node: NodeId,
-        dir: Direction,
-    ) -> Result<Vec<&Relationship>> {
+    pub fn incident_edges(&self, node: NodeId, dir: Direction) -> Result<Vec<&Relationship>> {
         let edge_ids = self.incident_edge_ids(node, dir)?;
         let mut edges = Vec::with_capacity(edge_ids.len());
         for id in edge_ids {
@@ -904,6 +893,11 @@ impl Graph {
         self.index_manager.has_index(label, property_key)
     }
 
+    /// Returns a list of all secondary property indexes (label, property_key, is_unique).
+    pub fn property_indices(&self) -> Vec<(String, String, bool)> {
+        self.index_manager.list_indices()
+    }
+
     /// Create a unique constraint on (label, property_key).
     /// Ensures all existing nodes with this label have unique values for this property.
     pub fn create_unique_constraint(&mut self, label: &str, property_key: &str) -> Result<bool> {
@@ -938,7 +932,8 @@ impl Graph {
 
     /// Drop a unique constraint on (label, property_key).
     pub fn drop_unique_constraint(&mut self, label: &str, property_key: &str) -> bool {
-        self.index_manager.drop_unique_constraint(label, property_key)
+        self.index_manager
+            .drop_unique_constraint(label, property_key)
     }
 
     /// Returns true if a unique constraint exists on (label, property_key).

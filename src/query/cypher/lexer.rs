@@ -97,7 +97,9 @@ impl<'a> Lexer<'a> {
                         self.chars.next();
                         tokens.push(Token::Neq);
                     } else {
-                        return Err(GraphError::InvalidOperation("Unexpected character '!'".into()));
+                        return Err(GraphError::InvalidOperation(
+                            "Unexpected character '!'".into(),
+                        ));
                     }
                 }
                 '-' => {
@@ -121,7 +123,9 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     if param.is_empty() {
-                        return Err(GraphError::InvalidOperation("Expected parameter name after '$'".into()));
+                        return Err(GraphError::InvalidOperation(
+                            "Expected parameter name after '$'".into(),
+                        ));
                     }
                     tokens.push(Token::Parameter(param));
                 }

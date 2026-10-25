@@ -9,7 +9,7 @@ use crate::value::PropertyValue;
 use crate::vector::VectorSimilarity;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::ffi::{c_char, c_int, CStr, CString};
+use std::ffi::{CStr, CString, c_char, c_int};
 
 /// Helper to safely convert a C string pointer to a Rust string slice.
 unsafe fn c_str_to_str<'a>(ptr: *const c_char) -> Option<&'a str> {

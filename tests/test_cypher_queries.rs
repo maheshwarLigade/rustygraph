@@ -12,7 +12,10 @@ fn test_cypher_node_pattern_and_props() -> Result<()> {
     let res = graph.cypher("MATCH (d:Developer {language: 'Rust'}) RETURN d.name, d.language")?;
     assert_eq!(res.columns, vec!["d.name", "d.language"]);
     assert_eq!(res.rows.len(), 1);
-    assert_eq!(res.rows[0], vec![PropertyValue::from("Ferris"), PropertyValue::from("Rust")]);
+    assert_eq!(
+        res.rows[0],
+        vec![PropertyValue::from("Ferris"), PropertyValue::from("Rust")]
+    );
 
     Ok(())
 }
@@ -20,19 +23,29 @@ fn test_cypher_node_pattern_and_props() -> Result<()> {
 #[test]
 fn test_cypher_relationships_and_directions() -> Result<()> {
     let mut graph = Graph::new();
-    let a = graph.create_node_with(|n| { n.set_prop("id", "A"); })?;
-    let b = graph.create_node_with(|n| { n.set_prop("id", "B"); })?;
+    let a = graph.create_node_with(|n| {
+        n.set_prop("id", "A");
+    })?;
+    let b = graph.create_node_with(|n| {
+        n.set_prop("id", "B");
+    })?;
     graph.create_edge(a, b, "CONNECTED_TO")?;
 
     // Outgoing
     let out_res = graph.cypher("MATCH (x)-[:CONNECTED_TO]->(y) RETURN x.id, y.id")?;
     assert_eq!(out_res.rows.len(), 1);
-    assert_eq!(out_res.rows[0], vec![PropertyValue::from("A"), PropertyValue::from("B")]);
+    assert_eq!(
+        out_res.rows[0],
+        vec![PropertyValue::from("A"), PropertyValue::from("B")]
+    );
 
     // Incoming: (y)<-[:CONNECTED_TO]-(x)
     let in_res = graph.cypher("MATCH (y)<-[:CONNECTED_TO]-(x) RETURN x.id, y.id")?;
     assert_eq!(in_res.rows.len(), 1);
-    assert_eq!(in_res.rows[0], vec![PropertyValue::from("A"), PropertyValue::from("B")]);
+    assert_eq!(
+        in_res.rows[0],
+        vec![PropertyValue::from("A"), PropertyValue::from("B")]
+    );
 
     Ok(())
 }
@@ -40,9 +53,18 @@ fn test_cypher_relationships_and_directions() -> Result<()> {
 #[test]
 fn test_cypher_where_operators() -> Result<()> {
     let mut graph = Graph::new();
-    let _n1 = graph.create_node_with(|n| { n.add_label("Score"); n.set_prop("val", 10); })?;
-    let _n2 = graph.create_node_with(|n| { n.add_label("Score"); n.set_prop("val", 20); })?;
-    let _n3 = graph.create_node_with(|n| { n.add_label("Score"); n.set_prop("val", 30); })?;
+    let _n1 = graph.create_node_with(|n| {
+        n.add_label("Score");
+        n.set_prop("val", 10);
+    })?;
+    let _n2 = graph.create_node_with(|n| {
+        n.add_label("Score");
+        n.set_prop("val", 20);
+    })?;
+    let _n3 = graph.create_node_with(|n| {
+        n.add_label("Score");
+        n.set_prop("val", 30);
+    })?;
 
     // Equal
     let eq_res = graph.cypher("MATCH (s:Score) WHERE s.val = 20 RETURN s.val")?;
@@ -70,7 +92,10 @@ fn test_cypher_where_operators() -> Result<()> {
 fn test_cypher_limit_clause() -> Result<()> {
     let mut graph = Graph::new();
     for i in 0..10 {
-        graph.create_node_with(|n| { n.add_label("Num"); n.set_prop("v", i); })?;
+        graph.create_node_with(|n| {
+            n.add_label("Num");
+            n.set_prop("v", i);
+        })?;
     }
 
     let lim_res = graph.cypher("MATCH (n:Num) RETURN n.v LIMIT 3")?;
@@ -127,7 +152,10 @@ fn test_cypher_parameterized_queries_and_plan_caching() -> Result<()> {
     let mut create_params = std::collections::HashMap::new();
     create_params.insert("new_name".to_string(), PropertyValue::from("Diana"));
     create_params.insert("new_city".to_string(), PropertyValue::from("Tokyo"));
-    graph.cypher_with_params("CREATE (p:User {name: $new_name, city: $new_city})", &create_params)?;
+    graph.cypher_with_params(
+        "CREATE (p:User {name: $new_name, city: $new_city})",
+        &create_params,
+    )?;
 
     let res_tokyo = graph.cypher("MATCH (p:User) WHERE p.city = 'Tokyo' RETURN p.name")?;
     assert_eq!(res_tokyo.len(), 1);
@@ -140,10 +168,22 @@ fn test_cypher_parameterized_queries_and_plan_caching() -> Result<()> {
 fn test_cypher_variable_length_paths() -> Result<()> {
     let mut graph = Graph::new();
 
-    let a = graph.create_node_with(|n| { n.add_label("Station"); n.set_prop("name", "A"); })?;
-    let b = graph.create_node_with(|n| { n.add_label("Station"); n.set_prop("name", "B"); })?;
-    let c = graph.create_node_with(|n| { n.add_label("Station"); n.set_prop("name", "C"); })?;
-    let d = graph.create_node_with(|n| { n.add_label("Station"); n.set_prop("name", "D"); })?;
+    let a = graph.create_node_with(|n| {
+        n.add_label("Station");
+        n.set_prop("name", "A");
+    })?;
+    let b = graph.create_node_with(|n| {
+        n.add_label("Station");
+        n.set_prop("name", "B");
+    })?;
+    let c = graph.create_node_with(|n| {
+        n.add_label("Station");
+        n.set_prop("name", "C");
+    })?;
+    let d = graph.create_node_with(|n| {
+        n.add_label("Station");
+        n.set_prop("name", "D");
+    })?;
 
     graph.create_edge(a, b, "TRACK")?;
     graph.create_edge(b, c, "TRACK")?;
@@ -156,7 +196,8 @@ fn test_cypher_variable_length_paths() -> Result<()> {
     assert_eq!(res_1_2.rows[1][0], PropertyValue::from("C"));
 
     // Exactly 3 hops from A should reach D
-    let res_exact_3 = graph.cypher("MATCH (a:Station {name: 'A'})-[:TRACK*3]->(b:Station) RETURN b.name")?;
+    let res_exact_3 =
+        graph.cypher("MATCH (a:Station {name: 'A'})-[:TRACK*3]->(b:Station) RETURN b.name")?;
     assert_eq!(res_exact_3.len(), 1);
     assert_eq!(res_exact_3.rows[0][0], PropertyValue::from("D"));
 
@@ -203,7 +244,7 @@ fn test_cypher_merge_and_upsert() -> Result<()> {
     let r1 = graph.cypher(
         "MERGE (u:User {email: 'alice@example.com'}) \
          ON CREATE SET u.created = 1, u.logins = 1 \
-         RETURN u.email, u.created, u.logins"
+         RETURN u.email, u.created, u.logins",
     )?;
     assert_eq!(r1.len(), 1);
     assert_eq!(r1.rows[0][0], PropertyValue::from("alice@example.com"));
@@ -215,7 +256,7 @@ fn test_cypher_merge_and_upsert() -> Result<()> {
     let r2 = graph.cypher(
         "MERGE (u:User {email: 'alice@example.com'}) \
          ON MATCH SET u.logins = 2 \
-         RETURN u.email, u.logins"
+         RETURN u.email, u.logins",
     )?;
     assert_eq!(r2.len(), 1);
     assert_eq!(r2.rows[0][0], PropertyValue::from("alice@example.com"));
@@ -243,5 +284,3 @@ fn test_cypher_merge_and_upsert() -> Result<()> {
 
     Ok(())
 }
-
-

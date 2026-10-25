@@ -31,7 +31,9 @@ impl PropertyValue {
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Self::Int(i) => Some(*i),
-            Self::Float(f) if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 => {
+            Self::Float(f)
+                if f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 =>
+            {
                 Some(*f as i64)
             }
             _ => None,

@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod executor;
+pub mod explain;
 pub mod lexer;
 pub mod parser;
 pub mod result;
@@ -7,6 +8,7 @@ pub mod token;
 
 pub use ast::*;
 pub use executor::{execute_ast, execute_ast_with_params};
+pub use explain::{QueryPlan, QueryPlanStep, explain_ast};
 pub use lexer::Lexer;
 pub use parser::Parser;
 pub use result::CypherResult;
@@ -37,6 +39,12 @@ impl Graph {
     ) -> Result<CypherResult> {
         let ast = GLOBAL_PLAN_CACHE.get_or_parse(query_str)?;
         execute_ast_with_params(self, (*ast).clone(), params)
+    }
+
+    /// Returns the parsed execution plan and operator tree for an openCypher query without executing it.
+    pub fn explain_cypher(&self, query_str: &str) -> Result<QueryPlan> {
+        let ast = GLOBAL_PLAN_CACHE.get_or_parse(query_str)?;
+        Ok(explain_ast(&ast, query_str))
     }
 }
 

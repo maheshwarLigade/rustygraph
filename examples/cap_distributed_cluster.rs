@@ -40,18 +40,27 @@ fn main() -> rusty_graph::Result<()> {
     let mut n5 = ClusterNode::new(5, cluster_members.clone(), ClusterMode::CP, network.clone());
 
     println!("Initialized 5-node cluster (Nodes 1, 2, 3, 4, 5)");
-    println!("Quorum threshold required for writes: {} / 5 nodes\n", n1.quorum_threshold());
+    println!(
+        "Quorum threshold required for writes: {} / 5 nodes\n",
+        n1.quorum_threshold()
+    );
 
     // 1. Leader Election
     println!("[Step 1] Running Leader Election in CP Mode...");
     let elected = n1.campaign()?;
     assert!(elected);
-    println!("  ✔ Node 1 campaigned and was elected LEADER (Role: {:?}, Term: {})\n", n1.role, n1.current_term);
+    println!(
+        "  ✔ Node 1 campaigned and was elected LEADER (Role: {:?}, Term: {})\n",
+        n1.role, n1.current_term
+    );
 
     // 2. Healthy Write Replication
     println!("[Step 2] Executing replicated write on Leader Node 1...");
     let mut props = HashMap::new();
-    props.insert("name".to_string(), PropertyValue::from("Central Bank Account"));
+    props.insert(
+        "name".to_string(),
+        PropertyValue::from("Central Bank Account"),
+    );
     props.insert("balance".to_string(), PropertyValue::from(5_000_000));
 
     let cmd1 = ClusterCommand::CreateNode {
@@ -61,14 +70,20 @@ fn main() -> rusty_graph::Result<()> {
     };
 
     let log_idx = n1.write(cmd1)?;
-    println!("  ✔ Write committed at Log Index {}. Acknowledged by quorum.", log_idx);
+    println!(
+        "  ✔ Write committed at Log Index {}. Acknowledged by quorum.",
+        log_idx
+    );
 
     // Followers apply updates
     n2.step()?;
     n3.step()?;
     n4.step()?;
     n5.step()?;
-    println!("  ✔ Followers synchronized. Node count across all 5 nodes = {}\n", n1.graph().node_count());
+    println!(
+        "  ✔ Followers synchronized. Node count across all 5 nodes = {}\n",
+        n1.graph().node_count()
+    );
 
     // 3. Network Partition Injection (Split-Brain Scenario)
     println!("[Step 3] Inducing Network Partition: Minority {{1, 2}} vs Majority {{3, 4, 5}}");
@@ -96,28 +111,45 @@ fn main() -> rusty_graph::Result<()> {
     }
 
     // 5. Majority Partition Operation
-    println!("[Step 5] Majority Partition {{3, 4, 5}} elects new Leader Node 3 and continues writes...");
+    println!(
+        "[Step 5] Majority Partition {{3, 4, 5}} elects new Leader Node 3 and continues writes..."
+    );
     let n3_won = n3.campaign()?;
     assert!(n3_won);
-    println!("  ✔ Node 3 achieved quorum ({}/5 votes) and became new LEADER in Term {}", 3, n3.current_term);
+    println!(
+        "  ✔ Node 3 achieved quorum ({}/5 votes) and became new LEADER in Term {}",
+        3, n3.current_term
+    );
 
     let mut props_ok = HashMap::new();
-    props_ok.insert("action".to_string(), PropertyValue::from("Majority Approved Write"));
+    props_ok.insert(
+        "action".to_string(),
+        PropertyValue::from("Majority Approved Write"),
+    );
     let cmd_majority = ClusterCommand::CreateNode {
         id: NodeId(102),
         labels: vec!["Audit".to_string()],
         properties: props_ok,
     };
     let maj_idx = n3.write(cmd_majority)?;
-    println!("  ✔ Majority partition successfully committed write at Log Index {}.\n", maj_idx);
+    println!(
+        "  ✔ Majority partition successfully committed write at Log Index {}.\n",
+        maj_idx
+    );
 
     // 6. Partition Healing & Reconciliation
     println!("[Step 6] Healing network partition...");
     network.heal();
     n1.anti_entropy_sync(&n3.log)?;
     n2.anti_entropy_sync(&n3.log)?;
-    println!("  ✔ Partition healed. Minority nodes updated to Term {} state machine.", n3.current_term);
-    println!("     All nodes in cluster now hold {} nodes.\n", n1.graph().node_count());
+    println!(
+        "  ✔ Partition healed. Minority nodes updated to Term {} state machine.",
+        n3.current_term
+    );
+    println!(
+        "     All nodes in cluster now hold {} nodes.\n",
+        n1.graph().node_count()
+    );
 
     // ─────────────────────────────────────────────────────────────────
     // Part 2: AP Mode (Availability + Partition Tolerance)
@@ -138,7 +170,10 @@ fn main() -> rusty_graph::Result<()> {
 
     println!("\n[AP Step 1] Writing to Node 1 while isolated...");
     let mut p1 = HashMap::new();
-    p1.insert("partition".to_string(), PropertyValue::from("Written on Side A"));
+    p1.insert(
+        "partition".to_string(),
+        PropertyValue::from("Written on Side A"),
+    );
     ap1.write(ClusterCommand::CreateNode {
         id: NodeId(201),
         labels: vec!["AP_Node".to_string()],
@@ -148,7 +183,10 @@ fn main() -> rusty_graph::Result<()> {
 
     println!("\n[AP Step 2] Concurrently writing to Node 2 while isolated...");
     let mut p2 = HashMap::new();
-    p2.insert("partition".to_string(), PropertyValue::from("Written on Side B"));
+    p2.insert(
+        "partition".to_string(),
+        PropertyValue::from("Written on Side B"),
+    );
     ap2.write(ClusterCommand::CreateNode {
         id: NodeId(202),
         labels: vec!["AP_Node".to_string()],
@@ -162,8 +200,14 @@ fn main() -> rusty_graph::Result<()> {
     ap2.anti_entropy_sync(&ap1.log)?;
 
     println!("  ✔ Reconciliation complete!");
-    println!("     Node 1 count: {} nodes (holds 201 & 202)", ap1.graph().node_count());
-    println!("     Node 2 count: {} nodes (holds 201 & 202)", ap2.graph().node_count());
+    println!(
+        "     Node 1 count: {} nodes (holds 201 & 202)",
+        ap1.graph().node_count()
+    );
+    println!(
+        "     Node 2 count: {} nodes (holds 201 & 202)",
+        ap2.graph().node_count()
+    );
     println!("\nAll nodes converged to identical state under Eventual Consistency!");
 
     Ok(())

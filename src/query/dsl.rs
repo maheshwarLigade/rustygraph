@@ -142,12 +142,13 @@ impl<'a> QueryBuilder<'a> {
     }
 
     /// Follow an outgoing relationship `-[rel_type]-> (target_alias)`.
-    pub fn outgoing<R: Into<String>, T: Into<String>>(
-        self,
-        rel_type: R,
-        target_alias: T,
-    ) -> Self {
-        self.rel(None, Some(rel_type.into()), Direction::Outgoing, target_alias.into())
+    pub fn outgoing<R: Into<String>, T: Into<String>>(self, rel_type: R, target_alias: T) -> Self {
+        self.rel(
+            None,
+            Some(rel_type.into()),
+            Direction::Outgoing,
+            target_alias.into(),
+        )
     }
 
     /// Follow an outgoing relationship binding the edge to an alias: `-[edge_alias:rel_type]-> (target_alias)`.
@@ -157,16 +158,22 @@ impl<'a> QueryBuilder<'a> {
         rel_type: R,
         target_alias: T,
     ) -> Self {
-        self.rel(Some(edge_alias.into()), Some(rel_type.into()), Direction::Outgoing, target_alias.into())
+        self.rel(
+            Some(edge_alias.into()),
+            Some(rel_type.into()),
+            Direction::Outgoing,
+            target_alias.into(),
+        )
     }
 
     /// Follow an incoming relationship `<-[rel_type]- (target_alias)`.
-    pub fn incoming<R: Into<String>, T: Into<String>>(
-        self,
-        rel_type: R,
-        target_alias: T,
-    ) -> Self {
-        self.rel(None, Some(rel_type.into()), Direction::Incoming, target_alias.into())
+    pub fn incoming<R: Into<String>, T: Into<String>>(self, rel_type: R, target_alias: T) -> Self {
+        self.rel(
+            None,
+            Some(rel_type.into()),
+            Direction::Incoming,
+            target_alias.into(),
+        )
     }
 
     /// Follow an incoming relationship binding the edge to an alias: `<-[edge_alias:rel_type]- (target_alias)`.
@@ -176,16 +183,22 @@ impl<'a> QueryBuilder<'a> {
         rel_type: R,
         target_alias: T,
     ) -> Self {
-        self.rel(Some(edge_alias.into()), Some(rel_type.into()), Direction::Incoming, target_alias.into())
+        self.rel(
+            Some(edge_alias.into()),
+            Some(rel_type.into()),
+            Direction::Incoming,
+            target_alias.into(),
+        )
     }
 
     /// Follow an undirected / bidirectional relationship `-[rel_type]- (target_alias)`.
-    pub fn rel_both<R: Into<String>, T: Into<String>>(
-        self,
-        rel_type: R,
-        target_alias: T,
-    ) -> Self {
-        self.rel(None, Some(rel_type.into()), Direction::Both, target_alias.into())
+    pub fn rel_both<R: Into<String>, T: Into<String>>(self, rel_type: R, target_alias: T) -> Self {
+        self.rel(
+            None,
+            Some(rel_type.into()),
+            Direction::Both,
+            target_alias.into(),
+        )
     }
 
     /// Follow a relationship with full configuration and optional variable-length hops.
@@ -239,11 +252,7 @@ impl<'a> QueryBuilder<'a> {
     {
         self.sorters.push(Box::new(move |a, b| {
             let ord = key_fn(a).cmp(&key_fn(b));
-            if ascending {
-                ord
-            } else {
-                ord.reverse()
-            }
+            if ascending { ord } else { ord.reverse() }
         }));
         self
     }
@@ -267,7 +276,8 @@ impl<'a> QueryBuilder<'a> {
         };
 
         // 1. Identify starting candidate nodes using indexes or label filtering
-        let candidates: Vec<NodeId> = if let Some((first_key, first_val)) = root.properties.first() {
+        let candidates: Vec<NodeId> = if let Some((first_key, first_val)) = root.properties.first()
+        {
             if let Some(lbl) = &root.label {
                 self.graph.find_nodes_by_property(lbl, first_key, first_val)
             } else {
@@ -349,18 +359,27 @@ impl<'a> QueryBuilder<'a> {
                                                 Some(lbl) => target_node.has_label(lbl),
                                                 None => true,
                                             };
-                                            let props_ok = step.target_node.properties.iter().all(|(k, v)| {
-                                                target_node.prop(k) == Some(v)
-                                            });
+                                            let props_ok = step
+                                                .target_node
+                                                .properties
+                                                .iter()
+                                                .all(|(k, v)| target_node.prop(k) == Some(v));
 
-                                            if label_ok && props_ok && visited_paths.insert((target_id, next_edges.clone())) {
+                                            if label_ok
+                                                && props_ok
+                                                && visited_paths
+                                                    .insert((target_id, next_edges.clone()))
+                                            {
                                                 let mut new_ctx = ctx.clone();
-                                                new_ctx
-                                                    .node_bindings
-                                                    .insert(step.target_node.alias.clone(), target_id);
+                                                new_ctx.node_bindings.insert(
+                                                    step.target_node.alias.clone(),
+                                                    target_id,
+                                                );
                                                 if let Some(edge_alias) = &step.alias {
                                                     if let Some(&first_e) = next_edges.first() {
-                                                        new_ctx.edge_bindings.insert(edge_alias.clone(), first_e);
+                                                        new_ctx
+                                                            .edge_bindings
+                                                            .insert(edge_alias.clone(), first_e);
                                                     }
                                                 }
                                                 next_contexts.push(new_ctx);
@@ -462,6 +481,9 @@ impl<'a> QueryBuilder<'a> {
     where
         F: Fn(&QueryContext<'a>) -> T,
     {
-        self.execute().into_iter().map(|ctx| projection(&ctx)).collect()
+        self.execute()
+            .into_iter()
+            .map(|ctx| projection(&ctx))
+            .collect()
     }
 }

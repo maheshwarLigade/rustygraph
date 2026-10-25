@@ -41,7 +41,10 @@ fn main() {
         eprintln!("🦀 RustyGraph MCP Server connecting to remote daemon at: {url}");
         McpBackend::Remote(url)
     } else if let Some(dir) = data_dir {
-        eprintln!("🦀 RustyGraph MCP Server opening persistent database at: {}", dir.display());
+        eprintln!(
+            "🦀 RustyGraph MCP Server opening persistent database at: {}",
+            dir.display()
+        );
         let mut config = DatabaseConfig::default();
         config.data_dir = dir;
         let db = StandaloneDatabase::open(config).expect("Failed to open persistent database");

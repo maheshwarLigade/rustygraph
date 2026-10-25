@@ -62,10 +62,7 @@ pub fn shortest_path_bfs(
                 curr = prev;
             }
             segments.reverse();
-            return Some(Path {
-                start,
-                segments,
-            });
+            return Some(Path { start, segments });
         }
 
         if let Ok(edges) = graph.incident_edges(current, dir) {
@@ -107,7 +104,10 @@ where
     let mut heap = BinaryHeap::new();
 
     dist.insert(start, 0.0);
-    heap.push(State { cost: 0.0, node: start });
+    heap.push(State {
+        cost: 0.0,
+        node: start,
+    });
 
     while let Some(State { cost, node }) = heap.pop() {
         if node == target {
@@ -122,13 +122,7 @@ where
                 curr = prev;
             }
             segments.reverse();
-            return Some((
-                Path {
-                    start,
-                    segments,
-                },
-                cost,
-            ));
+            return Some((Path { start, segments }, cost));
         }
 
         if let Some(&best) = dist.get(&node) {
@@ -219,13 +213,7 @@ where
                 curr = prev;
             }
             segments.reverse();
-            return Some((
-                Path {
-                    start,
-                    segments,
-                },
-                actual_cost,
-            ));
+            return Some((Path { start, segments }, actual_cost));
         }
 
         let current_g = g_score[&node];

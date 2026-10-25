@@ -176,23 +176,17 @@ impl<T> SlotArena<T> {
 
     /// Iterate over (ID, &Item) for all active items.
     pub fn iter(&self) -> impl Iterator<Item = (u64, &T)> {
-        self.slots
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, slot)| {
-                let id = ((slot.generation as u64) << 32) | (idx as u64);
-                slot.data.as_ref().map(|data| (id, data))
-            })
+        self.slots.iter().enumerate().filter_map(|(idx, slot)| {
+            let id = ((slot.generation as u64) << 32) | (idx as u64);
+            slot.data.as_ref().map(|data| (id, data))
+        })
     }
 
     /// Iterate over (ID, &mut Item) for all active items.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (u64, &mut T)> {
-        self.slots
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(idx, slot)| {
-                let id = ((slot.generation as u64) << 32) | (idx as u64);
-                slot.data.as_mut().map(|data| (id, data))
-            })
+        self.slots.iter_mut().enumerate().filter_map(|(idx, slot)| {
+            let id = ((slot.generation as u64) << 32) | (idx as u64);
+            slot.data.as_mut().map(|data| (id, data))
+        })
     }
 }

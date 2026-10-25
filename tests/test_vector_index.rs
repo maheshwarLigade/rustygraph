@@ -27,7 +27,13 @@ fn test_vector_index_creation_and_search() -> Result<()> {
     let mut graph = Graph::new();
 
     // Create 3-dimensional vector index on (:Document {embedding}) with Cosine metric
-    graph.create_vector_index("doc_embeddings", "Document", "embedding", 3, VectorSimilarity::Cosine)?;
+    graph.create_vector_index(
+        "doc_embeddings",
+        "Document",
+        "embedding",
+        3,
+        VectorSimilarity::Cosine,
+    )?;
     assert!(graph.has_vector_index("doc_embeddings"));
 
     // Insert documents with 3D embeddings

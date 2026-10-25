@@ -54,7 +54,11 @@ impl Properties {
     }
 
     /// Set a property key to a value.
-    pub fn insert<K: Into<String>, V: Into<PropertyValue>>(&mut self, key: K, val: V) -> Option<PropertyValue> {
+    pub fn insert<K: Into<String>, V: Into<PropertyValue>>(
+        &mut self,
+        key: K,
+        val: V,
+    ) -> Option<PropertyValue> {
         self.entries.insert(key.into(), val.into())
     }
 
@@ -153,7 +157,11 @@ impl Node {
     }
 
     /// Builder method to set a property.
-    pub fn with_property<K: Into<String>, V: Into<PropertyValue>>(mut self, key: K, val: V) -> Self {
+    pub fn with_property<K: Into<String>, V: Into<PropertyValue>>(
+        mut self,
+        key: K,
+        val: V,
+    ) -> Self {
         self.properties.insert(key, val);
         self
     }
@@ -182,7 +190,11 @@ impl Node {
 
     /// Set a property key and value.
     #[inline]
-    pub fn set_prop<K: Into<String>, V: Into<PropertyValue>>(&mut self, key: K, val: V) -> Option<PropertyValue> {
+    pub fn set_prop<K: Into<String>, V: Into<PropertyValue>>(
+        &mut self,
+        key: K,
+        val: V,
+    ) -> Option<PropertyValue> {
         self.properties.insert(key, val)
     }
 
@@ -243,7 +255,11 @@ impl Relationship {
     }
 
     /// Builder method to add a property.
-    pub fn with_property<K: Into<String>, V: Into<PropertyValue>>(mut self, key: K, val: V) -> Self {
+    pub fn with_property<K: Into<String>, V: Into<PropertyValue>>(
+        mut self,
+        key: K,
+        val: V,
+    ) -> Self {
         self.properties.insert(key, val);
         self
     }
@@ -280,7 +296,11 @@ impl Relationship {
 
     /// Set a property key and value.
     #[inline]
-    pub fn set_prop<K: Into<String>, V: Into<PropertyValue>>(&mut self, key: K, val: V) -> Option<PropertyValue> {
+    pub fn set_prop<K: Into<String>, V: Into<PropertyValue>>(
+        &mut self,
+        key: K,
+        val: V,
+    ) -> Option<PropertyValue> {
         self.properties.insert(key, val)
     }
 

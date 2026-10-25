@@ -6,5 +6,5 @@
 pub mod fulltext;
 pub mod property;
 
-pub use fulltext::{tokenize, FulltextIndex, FulltextSearchResult};
+pub use fulltext::{FulltextIndex, FulltextSearchResult, tokenize};
 pub use property::{IndexKey, IndexManager, PropertyIndex};

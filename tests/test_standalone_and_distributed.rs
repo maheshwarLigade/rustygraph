@@ -5,7 +5,7 @@ use rusty_graph::error::Result;
 use rusty_graph::server::{ServerConfig, StandaloneServer};
 use rusty_graph::value::PropertyValue;
 use rusty_graph::vector::VectorSimilarity;
-use rusty_graph::wal::{crc32, FsyncPolicy, WalManager, WalOp};
+use rusty_graph::wal::{FsyncPolicy, WalManager, WalOp, crc32};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -84,7 +84,10 @@ fn test_standalone_database_crash_recovery() -> Result<()> {
 
         let mut p1 = HashMap::new();
         p1.insert("name".to_string(), PropertyValue::from("Alice"));
-        p1.insert("vec".to_string(), PropertyValue::from(vec![1.0f32, 0.0, 0.0]));
+        p1.insert(
+            "vec".to_string(),
+            PropertyValue::from(vec![1.0f32, 0.0, 0.0]),
+        );
         let a_id = db.create_node(vec!["User".to_string()], p1)?;
 
         let mut p2 = HashMap::new();
@@ -113,7 +116,10 @@ fn test_standalone_database_crash_recovery() -> Result<()> {
         let db2 = StandaloneDatabase::open(config)?;
         let stats = db2.stats();
 
-        assert_eq!(stats.node_count, 3, "All 3 nodes must be present after recovery");
+        assert_eq!(
+            stats.node_count, 3,
+            "All 3 nodes must be present after recovery"
+        );
         assert_eq!(stats.edge_count, 1, "Edge must be present after recovery");
 
         // Verify Cypher query works on recovered state
@@ -148,6 +154,8 @@ fn test_http_rest_api_server_endpoints() -> Result<()> {
             keep_snapshots: 2,
             auto_checkpoint_ops: 0,
         },
+        auth_enabled: false,
+        default_admin_password: None,
     };
 
     let server = StandaloneServer::start(server_config)?;
@@ -168,7 +176,11 @@ fn test_http_rest_api_server_endpoints() -> Result<()> {
     })
     .to_string();
 
-    let (status, node_resp) = http_request("POST", &format!("http://{}/nodes", http_addr), &node_payload)?;
+    let (status, node_resp) = http_request(
+        "POST",
+        &format!("http://{}/nodes", http_addr),
+        &node_payload,
+    )?;
     assert_eq!(status, 200);
     assert!(node_resp.contains("node_id"));
 
@@ -178,7 +190,11 @@ fn test_http_rest_api_server_endpoints() -> Result<()> {
     })
     .to_string();
 
-    let (status, cypher_resp) = http_request("POST", &format!("http://{}/cypher", http_addr), &cypher_payload)?;
+    let (status, cypher_resp) = http_request(
+        "POST",
+        &format!("http://{}/cypher", http_addr),
+        &cypher_payload,
+    )?;
     assert_eq!(status, 200);
     assert!(cypher_resp.contains("David"));
     assert!(cypher_resp.contains("Rust"));
@@ -229,7 +245,10 @@ fn test_distributed_tcp_cluster_consensus() -> Result<()> {
 
     // Populate db1 with initial knowledge state before node 2 joins
     let mut initial_props = HashMap::new();
-    initial_props.insert("cluster_key".to_string(), PropertyValue::from("synced_value"));
+    initial_props.insert(
+        "cluster_key".to_string(),
+        PropertyValue::from("synced_value"),
+    );
     db1.create_node(vec!["ClusterTest".to_string()], initial_props)?;
 
     thread::sleep(Duration::from_millis(200));
@@ -259,7 +278,11 @@ fn test_distributed_tcp_cluster_consensus() -> Result<()> {
 
     // Verify node 2 automatically synchronized initial snapshot from node 1
     let synced_res = db2.cypher("MATCH (c:ClusterTest) RETURN c.cluster_key")?;
-    assert_eq!(synced_res.len(), 1, "Node 2 must receive snapshot of existing graph");
+    assert_eq!(
+        synced_res.len(),
+        1,
+        "Node 2 must receive snapshot of existing graph"
+    );
     assert_eq!(synced_res.rows[0][0], PropertyValue::from("synced_value"));
 
     node1.stop();

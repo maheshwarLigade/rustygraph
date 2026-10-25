@@ -4,9 +4,9 @@ use std::collections::{HashMap, HashSet};
 
 /// Stop words commonly filtered to enhance inverted search relevance.
 const STOP_WORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is",
-    "it", "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there",
-    "these", "they", "this", "to", "was", "will", "with",
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is", "it",
+    "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there", "these",
+    "they", "this", "to", "was", "will", "with",
 ];
 
 /// Represents a scored document hit returned by a full-text search.
@@ -128,21 +128,26 @@ impl FulltextIndex {
         for q_term in &query_tokens {
             // Find exact matches or terms starting with q_term
             for (term, postings) in &self.postings {
-                let matches_term = term == q_term || (term.starts_with(q_term) && q_term.len() >= 3);
+                let matches_term =
+                    term == q_term || (term.starts_with(q_term) && q_term.len() >= 3);
                 if !matches_term {
                     continue;
                 }
 
                 let doc_freq = postings.len() as f32;
                 // Standard smoothed IDF: ln(1 + (N - df + 0.5) / (df + 0.5))
-                let idf = ((total_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0).ln().max(0.1);
+                let idf = ((total_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
+                    .ln()
+                    .max(0.1);
 
                 for (&node_id, &tf) in postings {
                     let doc_len = *self.doc_lengths.get(&node_id).unwrap_or(&1) as f32;
                     let norm_tf = (tf as f32) / doc_len;
                     let term_score = norm_tf * idf;
 
-                    let entry = node_scores.entry(node_id).or_insert_with(|| (0.0, Vec::new()));
+                    let entry = node_scores
+                        .entry(node_id)
+                        .or_insert_with(|| (0.0, Vec::new()));
                     entry.0 += term_score;
                     if !entry.1.contains(term) {
                         entry.1.push(term.clone());
@@ -186,7 +191,9 @@ impl FulltextIndex {
             }
 
             let doc_freq = postings.len() as f32;
-            let idf = ((total_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0).ln().max(0.1);
+            let idf = ((total_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
+                .ln()
+                .max(0.1);
 
             for (&node_id, &tf) in postings {
                 let doc_len = *self.doc_lengths.get(&node_id).unwrap_or(&1) as f32;
@@ -210,7 +217,11 @@ impl FulltextIndex {
             })
             .collect();
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(limit);
         results
     }

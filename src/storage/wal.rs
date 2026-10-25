@@ -88,6 +88,20 @@ pub enum WalOp {
         label: String,
         property_key: String,
     },
+    CreatePropertyIndex {
+        label: String,
+        property_key: String,
+    },
+    DropPropertyIndex {
+        label: String,
+        property_key: String,
+    },
+    DropVectorIndex {
+        name: String,
+    },
+    DropFulltextIndex {
+        name: String,
+    },
     CypherQuery {
         query: String,
     },

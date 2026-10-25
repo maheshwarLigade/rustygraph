@@ -124,16 +124,25 @@ impl DistributedClusterNode {
             db,
             is_leader: AtomicBool::new(is_init_leader),
             current_term: AtomicU64::new(1),
-            known_leader: RwLock::new(if is_init_leader { Some(node_id.clone()) } else { None }),
+            known_leader: RwLock::new(if is_init_leader {
+                Some(node_id.clone())
+            } else {
+                None
+            }),
             peers: Arc::new(RwLock::new(peer_map)),
             last_heartbeat: Arc::new(Mutex::new(Instant::now())),
             running: Arc::new(AtomicBool::new(true)),
         });
 
         // 1. Start TCP Listener thread
-        let listener = TcpListener::bind(&address)
-            .map_err(|e| Error::Storage(format!("Failed to bind TCP cluster port {}: {}", address, e)))?;
-        listener.set_nonblocking(true)
+        let listener = TcpListener::bind(&address).map_err(|e| {
+            Error::Storage(format!(
+                "Failed to bind TCP cluster port {}: {}",
+                address, e
+            ))
+        })?;
+        listener
+            .set_nonblocking(true)
             .map_err(|e| Error::Storage(format!("Failed to set nonblocking: {}", e)))?;
 
         let listener_node = Arc::clone(&node);
@@ -283,7 +292,11 @@ impl DistributedClusterNode {
                 }
                 None
             }
-            ClusterMessage::Heartbeat { from, term, is_leader } => {
+            ClusterMessage::Heartbeat {
+                from,
+                term,
+                is_leader,
+            } => {
                 *self.last_heartbeat.lock().unwrap() = Instant::now();
                 let my_term = self.current_term.load(Ordering::SeqCst);
                 if term >= my_term {
@@ -341,7 +354,11 @@ impl DistributedClusterNode {
                     wal_sequence: self.db.stats().current_wal_sequence,
                 })
             }
-            ClusterMessage::SyncSnapshotResponse { dump_json, current_term, .. } => {
+            ClusterMessage::SyncSnapshotResponse {
+                dump_json,
+                current_term,
+                ..
+            } => {
                 if !dump_json.is_empty() {
                     if let Ok(graph) = crate::graph::Graph::from_json(&dump_json) {
                         self.db.graph().write(|g| {
@@ -443,7 +460,9 @@ impl DistributedClusterNode {
 
     fn send_message_to(address: &str, msg: &ClusterMessage) -> Result<Option<ClusterMessage>> {
         let mut stream = TcpStream::connect_timeout(
-            &address.parse().map_err(|e| Error::Storage(format!("Invalid address: {}", e)))?,
+            &address
+                .parse()
+                .map_err(|e| Error::Storage(format!("Invalid address: {}", e)))?,
             Duration::from_millis(1500),
         )?;
         let _ = stream.set_read_timeout(Some(Duration::from_millis(2000)));
@@ -465,23 +484,49 @@ impl DistributedClusterNode {
 
     fn apply_write_locally(&self, op: WalOp) -> Result<()> {
         match op {
-            WalOp::CreateNode { labels, properties, .. } => {
-                self.db.create_node(labels, properties.into_iter().collect())?;
+            WalOp::CreateNode {
+                labels, properties, ..
+            } => {
+                self.db
+                    .create_node(labels, properties.into_iter().collect())?;
             }
             WalOp::DeleteNode { id } => {
                 self.db.delete_node(crate::id::NodeId(id))?;
             }
-            WalOp::CreateEdge { source, target, rel_type, properties, .. } => {
-                self.db.create_edge(crate::id::NodeId(source), crate::id::NodeId(target), &rel_type, properties.into_iter().collect())?;
+            WalOp::CreateEdge {
+                source,
+                target,
+                rel_type,
+                properties,
+                ..
+            } => {
+                self.db.create_edge(
+                    crate::id::NodeId(source),
+                    crate::id::NodeId(target),
+                    &rel_type,
+                    properties.into_iter().collect(),
+                )?;
             }
             WalOp::DeleteEdge { id } => {
                 self.db.delete_edge(crate::id::RelId(id))?;
             }
-            WalOp::CreateVectorIndex { name, label, prop_key, dimension, similarity } => {
-                self.db.create_vector_index(&name, &label, &prop_key, dimension, similarity)?;
+            WalOp::CreateVectorIndex {
+                name,
+                label,
+                prop_key,
+                dimension,
+                similarity,
+            } => {
+                self.db
+                    .create_vector_index(&name, &label, &prop_key, dimension, similarity)?;
             }
-            WalOp::CreateFulltextIndex { name, label, property_key } => {
-                self.db.create_fulltext_index(&name, &label, &property_key)?;
+            WalOp::CreateFulltextIndex {
+                name,
+                label,
+                property_key,
+            } => {
+                self.db
+                    .create_fulltext_index(&name, &label, &property_key)?;
             }
             _ => {}
         }

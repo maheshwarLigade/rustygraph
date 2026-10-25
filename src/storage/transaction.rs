@@ -1,4 +1,4 @@
-use crate::cypher::{is_cypher_mutation, CypherResult};
+use crate::cypher::{CypherResult, is_cypher_mutation};
 use crate::error::{GraphError, Result};
 use crate::graph::Graph;
 use serde::{Deserialize, Serialize};
@@ -117,9 +117,9 @@ impl TransactionManager {
     pub fn execute(&self, tx_id: u64, query_str: &str) -> Result<CypherResult> {
         let tx_arc = {
             let map = self.transactions.read().unwrap();
-            map.get(&tx_id)
-                .cloned()
-                .ok_or_else(|| GraphError::InvalidOperation(format!("Transaction {} not found", tx_id)))?
+            map.get(&tx_id).cloned().ok_or_else(|| {
+                GraphError::InvalidOperation(format!("Transaction {} not found", tx_id))
+            })?
         };
 
         let mut tx = tx_arc.lock().unwrap();
@@ -183,7 +183,11 @@ impl TransactionManager {
         let mut list = Vec::new();
         for (&id, tx_arc) in map.iter() {
             if let Ok(tx) = tx_arc.try_lock() {
-                list.push((id, tx.remaining_time().as_millis() as u64, tx.mutating_queries.len()));
+                list.push((
+                    id,
+                    tx.remaining_time().as_millis() as u64,
+                    tx.mutating_queries.len(),
+                ));
             }
         }
         list

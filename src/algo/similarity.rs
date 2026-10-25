@@ -28,12 +28,7 @@ pub fn common_neighbors(
 /// Compute the Jaccard similarity coefficient between two nodes:
 /// `J(A, B) = |Neighbors(A) ∩ Neighbors(B)| / |Neighbors(A) ∪ Neighbors(B)|`
 /// Returns a value in [0.0, 1.0]. Returns 1.0 if both nodes have identical neighbors.
-pub fn jaccard_similarity(
-    graph: &Graph,
-    node_a: NodeId,
-    node_b: NodeId,
-    dir: Direction,
-) -> f64 {
+pub fn jaccard_similarity(graph: &Graph, node_a: NodeId, node_b: NodeId, dir: Direction) -> f64 {
     let neighbors_a: HashSet<NodeId> = graph
         .neighbors(node_a, dir)
         .unwrap_or_default()

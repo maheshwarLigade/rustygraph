@@ -1,6 +1,6 @@
 use super::ast::{
-    AstQuery, CompOp, DeleteClause, OrderByClause, ParsedMerge, ParsedNode, ParsedRel, QueryValue, ReturnItem, ReturnKind,
-    SetClause, WhereClause,
+    AstQuery, CompOp, DeleteClause, OrderByClause, ParsedMerge, ParsedNode, ParsedRel, QueryValue,
+    ReturnItem, ReturnKind, SetClause, WhereClause,
 };
 use super::token::Token;
 use crate::error::{GraphError, Result};
@@ -70,7 +70,9 @@ impl Parser {
             if let Some(Token::Ident(lbl)) = self.next() {
                 label = Some(lbl);
             } else {
-                return Err(GraphError::InvalidOperation("Expected label identifier".into()));
+                return Err(GraphError::InvalidOperation(
+                    "Expected label identifier".into(),
+                ));
             }
         }
 
@@ -96,7 +98,11 @@ impl Parser {
         }
 
         self.expect(Token::RParen)?;
-        Ok(ParsedNode { alias, label, props })
+        Ok(ParsedNode {
+            alias,
+            label,
+            props,
+        })
     }
 
     fn parse_rel(&mut self) -> Result<ParsedRel> {
@@ -158,7 +164,9 @@ impl Parser {
                 let key = if let Some(Token::Ident(k)) = self.next() {
                     k
                 } else {
-                    return Err(GraphError::InvalidOperation("Expected property key in relationship".into()));
+                    return Err(GraphError::InvalidOperation(
+                        "Expected property key in relationship".into(),
+                    ));
                 };
                 self.expect(Token::Colon)?;
                 let val = self.parse_value()?;
@@ -214,13 +222,17 @@ impl Parser {
             let alias = if let Some(Token::Ident(a)) = self.next() {
                 a
             } else {
-                return Err(GraphError::InvalidOperation("Expected alias in SET clause".into()));
+                return Err(GraphError::InvalidOperation(
+                    "Expected alias in SET clause".into(),
+                ));
             };
             self.expect(Token::Dot)?;
             let mut prop = if let Some(Token::Ident(p)) = self.next() {
                 p
             } else {
-                return Err(GraphError::InvalidOperation("Expected property in SET clause".into()));
+                return Err(GraphError::InvalidOperation(
+                    "Expected property in SET clause".into(),
+                ));
             };
             while self.peek() == Some(&Token::Dot) {
                 self.next();
@@ -228,7 +240,9 @@ impl Parser {
                     prop.push('.');
                     prop.push_str(&sub);
                 } else {
-                    return Err(GraphError::InvalidOperation("Expected property segment after dot in SET".into()));
+                    return Err(GraphError::InvalidOperation(
+                        "Expected property segment after dot in SET".into(),
+                    ));
                 }
             }
             self.expect(Token::Eq)?;
@@ -271,14 +285,18 @@ impl Parser {
                         let alias = if let Some(Token::Ident(a)) = self.next() {
                             a
                         } else {
-                            return Err(GraphError::InvalidOperation("Expected alias in WHERE".into()));
+                            return Err(GraphError::InvalidOperation(
+                                "Expected alias in WHERE".into(),
+                            ));
                         };
 
                         self.expect(Token::Dot)?;
                         let mut prop = if let Some(Token::Ident(p)) = self.next() {
                             p
                         } else {
-                            return Err(GraphError::InvalidOperation("Expected property in WHERE".into()));
+                            return Err(GraphError::InvalidOperation(
+                                "Expected property in WHERE".into(),
+                            ));
                         };
                         while self.peek() == Some(&Token::Dot) {
                             self.next();
@@ -286,7 +304,9 @@ impl Parser {
                                 prop.push('.');
                                 prop.push_str(&sub);
                             } else {
-                                return Err(GraphError::InvalidOperation("Expected property segment after dot in WHERE".into()));
+                                return Err(GraphError::InvalidOperation(
+                                    "Expected property segment after dot in WHERE".into(),
+                                ));
                             }
                         }
 
@@ -305,7 +325,12 @@ impl Parser {
                         };
 
                         let val = self.parse_value()?;
-                        where_clauses.push(WhereClause { alias, prop, op, val });
+                        where_clauses.push(WhereClause {
+                            alias,
+                            prop,
+                            op,
+                            val,
+                        });
 
                         if self.peek() == Some(&Token::And) {
                             self.next();
@@ -352,7 +377,10 @@ impl Parser {
                     self.next();
                     loop {
                         if let Some(Token::Ident(alias)) = self.next() {
-                            delete_clauses.push(DeleteClause { alias, detach: false });
+                            delete_clauses.push(DeleteClause {
+                                alias,
+                                detach: false,
+                            });
                         }
                         if self.peek() == Some(&Token::Comma) {
                             self.next();
@@ -366,7 +394,10 @@ impl Parser {
                     self.expect(Token::Delete)?;
                     loop {
                         if let Some(Token::Ident(alias)) = self.next() {
-                            delete_clauses.push(DeleteClause { alias, detach: true });
+                            delete_clauses.push(DeleteClause {
+                                alias,
+                                detach: true,
+                            });
                         }
                         if self.peek() == Some(&Token::Comma) {
                             self.next();
@@ -398,7 +429,9 @@ impl Parser {
                         let alias = if let Some(Token::Ident(a)) = self.next() {
                             a
                         } else {
-                            return Err(GraphError::InvalidOperation("Expected identifier in ORDER BY".into()));
+                            return Err(GraphError::InvalidOperation(
+                                "Expected identifier in ORDER BY".into(),
+                            ));
                         };
                         let mut prop = None;
                         if self.peek() == Some(&Token::Dot) {
@@ -421,7 +454,11 @@ impl Parser {
                         } else if self.peek() == Some(&Token::Asc) {
                             self.next();
                         }
-                        order_by.push(OrderByClause { alias, prop, descending });
+                        order_by.push(OrderByClause {
+                            alias,
+                            prop,
+                            descending,
+                        });
                         if self.peek() == Some(&Token::Comma) {
                             self.next();
                         } else {
@@ -434,7 +471,9 @@ impl Parser {
                     if let Some(Token::IntLit(n)) = self.next() {
                         limit = Some(n as usize);
                     } else {
-                        return Err(GraphError::InvalidOperation("Expected integer in LIMIT".into()));
+                        return Err(GraphError::InvalidOperation(
+                            "Expected integer in LIMIT".into(),
+                        ));
                     }
                 }
                 other => {
@@ -448,7 +487,8 @@ impl Parser {
 
         if matches.is_empty() && creates.is_empty() && merges.is_empty() && returns.is_empty() {
             return Err(GraphError::InvalidOperation(
-                "Cypher query must contain at least a MATCH, CREATE, MERGE, or RETURN clause".into(),
+                "Cypher query must contain at least a MATCH, CREATE, MERGE, or RETURN clause"
+                    .into(),
             ));
         }
 
@@ -521,7 +561,9 @@ impl Parser {
                             output_name: name,
                         })
                     } else {
-                        Err(GraphError::InvalidOperation("Expected expression in count(...)".into()))
+                        Err(GraphError::InvalidOperation(
+                            "Expected expression in count(...)".into(),
+                        ))
                     }
                 }
             }
@@ -570,7 +612,9 @@ impl Parser {
                         output_name: name,
                     })
                 } else {
-                    Err(GraphError::InvalidOperation("Expected expression in collect(...)".into()))
+                    Err(GraphError::InvalidOperation(
+                        "Expected expression in collect(...)".into(),
+                    ))
                 }
             }
             Some(Token::Sum) => self.parse_agg_func(|a, p| ReturnKind::Sum(a, p), "sum"),
@@ -596,7 +640,9 @@ impl Parser {
                             output_name: name,
                         })
                     } else {
-                        Err(GraphError::InvalidOperation("Expected property after dot".into()))
+                        Err(GraphError::InvalidOperation(
+                            "Expected property after dot".into(),
+                        ))
                     }
                 } else {
                     Ok(ReturnItem {
@@ -621,13 +667,19 @@ impl Parser {
         let alias = if let Some(Token::Ident(a)) = self.next() {
             a
         } else {
-            return Err(GraphError::InvalidOperation(format!("Expected identifier in {}()", func_name)));
+            return Err(GraphError::InvalidOperation(format!(
+                "Expected identifier in {}()",
+                func_name
+            )));
         };
         self.expect(Token::Dot)?;
         let mut prop = if let Some(Token::Ident(p)) = self.next() {
             p
         } else {
-            return Err(GraphError::InvalidOperation(format!("Expected property in {}()", func_name)));
+            return Err(GraphError::InvalidOperation(format!(
+                "Expected property in {}()",
+                func_name
+            )));
         };
         while self.peek() == Some(&Token::Dot) {
             self.next();

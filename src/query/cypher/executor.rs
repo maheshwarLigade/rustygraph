@@ -26,22 +26,31 @@ pub fn execute_ast_with_params(
     for (nodes, rels) in &ast.creates {
         let mut pattern_node_ids = Vec::new();
         for n in nodes {
-            let mut resolved_props = Vec::with_capacity(n.props.len());
-            for (k, v) in &n.props {
-                resolved_props.push((k.clone(), v.resolve(params)?));
-            }
+            let node_id = if !n.alias.is_empty()
+                && alias_node_map.contains_key(&n.alias)
+                && n.label.is_none()
+                && n.props.is_empty()
+            {
+                alias_node_map[&n.alias]
+            } else {
+                let mut resolved_props = Vec::with_capacity(n.props.len());
+                for (k, v) in &n.props {
+                    resolved_props.push((k.clone(), v.resolve(params)?));
+                }
 
-            let node_id = graph.create_node_with(|node| {
-                if let Some(lbl) = &n.label {
-                    node.add_label(lbl);
+                let nid = graph.create_node_with(|node| {
+                    if let Some(lbl) = &n.label {
+                        node.add_label(lbl);
+                    }
+                    for (k, val) in resolved_props {
+                        node.set_prop(k, val);
+                    }
+                })?;
+                if !n.alias.is_empty() {
+                    alias_node_map.insert(n.alias.clone(), nid);
                 }
-                for (k, val) in resolved_props {
-                    node.set_prop(k, val);
-                }
-            })?;
-            if !n.alias.is_empty() {
-                alias_node_map.insert(n.alias.clone(), node_id);
-            }
+                nid
+            };
             pattern_node_ids.push(node_id);
         }
 
@@ -88,9 +97,9 @@ pub fn execute_ast_with_params(
 
                 candidates.into_iter().find(|&id| {
                     if let Some(node) = graph.get_node(id) {
-                        resolved_props.iter().all(|(k, expected)| {
-                            node.properties.get(k) == Some(expected)
-                        })
+                        resolved_props
+                            .iter()
+                            .all(|(k, expected)| node.properties.get(k) == Some(expected))
                     } else {
                         false
                     }
@@ -127,15 +136,18 @@ pub fn execute_ast_with_params(
                 resolved_rel_props.push((k.clone(), v.resolve(params)?));
             }
 
-            let existing_edge = graph.incident_edges(src, Direction::Outgoing).ok().and_then(|edges| {
-                edges.into_iter().find(|e| {
-                    e.target == dst
-                        && (rel.rel_type.is_none() || e.rel_type == rel_type)
-                        && resolved_rel_props.iter().all(|(k, expected)| {
-                            e.properties.get(k) == Some(expected)
-                        })
-                })
-            });
+            let existing_edge = graph
+                .incident_edges(src, Direction::Outgoing)
+                .ok()
+                .and_then(|edges| {
+                    edges.into_iter().find(|e| {
+                        e.target == dst
+                            && (rel.rel_type.is_none() || e.rel_type == rel_type)
+                            && resolved_rel_props
+                                .iter()
+                                .all(|(k, expected)| e.properties.get(k) == Some(expected))
+                    })
+                });
 
             let edge_id = match existing_edge {
                 Some(e) => e.id,
@@ -324,7 +336,9 @@ pub fn execute_ast_with_params(
                                     }
                                 }
                             } else {
-                                if !*is_distinct || seen.insert(PropertyValue::Int(node_id.raw() as i64)) {
+                                if !*is_distinct
+                                    || seen.insert(PropertyValue::Int(node_id.raw() as i64))
+                                {
                                     count += 1;
                                 }
                             }
@@ -338,10 +352,16 @@ pub fn execute_ast_with_params(
                     for b in &bindings {
                         if let Some(&node_id) = b.nodes.get(alias) {
                             let val = if let Some(prop) = prop_opt {
-                                graph.get_node_property(node_id, prop).cloned().unwrap_or(PropertyValue::Null)
+                                graph
+                                    .get_node_property(node_id, prop)
+                                    .cloned()
+                                    .unwrap_or(PropertyValue::Null)
                             } else if let Some(node) = graph.get_node(node_id) {
                                 let mut map = BTreeMap::new();
-                                map.insert("id".to_string(), PropertyValue::Int(node.id.raw() as i64));
+                                map.insert(
+                                    "id".to_string(),
+                                    PropertyValue::Int(node.id.raw() as i64),
+                                );
                                 for (k, v) in node.properties.iter() {
                                     map.insert(k.clone(), v.clone());
                                 }
@@ -463,7 +483,10 @@ pub fn execute_ast_with_params(
                         if let Some(&node_id) = b.nodes.get(alias) {
                             if let Some(node) = graph.get_node(node_id) {
                                 let mut map = BTreeMap::new();
-                                map.insert("id".to_string(), PropertyValue::Int(node.id.raw() as i64));
+                                map.insert(
+                                    "id".to_string(),
+                                    PropertyValue::Int(node.id.raw() as i64),
+                                );
                                 for (k, v) in node.properties.iter() {
                                     map.insert(k.clone(), v.clone());
                                 }
@@ -502,11 +525,7 @@ pub fn execute_ast_with_params(
                 let desc = order.descending;
                 rows.sort_by(|a, b| {
                     let ord = a[col_idx].cmp(&b[col_idx]);
-                    if desc {
-                        ord.reverse()
-                    } else {
-                        ord
-                    }
+                    if desc { ord.reverse() } else { ord }
                 });
             }
         }

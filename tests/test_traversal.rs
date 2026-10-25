@@ -6,7 +6,9 @@ fn test_traversal_depth_bounds() -> Result<()> {
     // 0 -> 1 -> 2 -> 3 -> 4
     let mut nodes = Vec::new();
     for i in 0..5 {
-        nodes.push(graph.create_node_with(|n| { n.set_prop("val", i); })?);
+        nodes.push(graph.create_node_with(|n| {
+            n.set_prop("val", i);
+        })?);
     }
     for i in 0..4 {
         graph.create_edge(nodes[i], nodes[i + 1], "STEP")?;
@@ -20,12 +22,22 @@ fn test_traversal_depth_bounds() -> Result<()> {
     assert_eq!(paths_0_to_2[2].len(), 2);
 
     // Exact depth: min_depth=2, max_depth=2
-    let paths_exact_2 = graph.traverse(nodes[0]).outgoing().min_depth(2).max_depth(2).paths();
+    let paths_exact_2 = graph
+        .traverse(nodes[0])
+        .outgoing()
+        .min_depth(2)
+        .max_depth(2)
+        .paths();
     assert_eq!(paths_exact_2.len(), 1);
     assert_eq!(paths_exact_2[0].end_node(), nodes[2]);
 
     // Depth bounds: min_depth=1, max_depth=3
-    let reached_nodes = graph.traverse(nodes[0]).outgoing().min_depth(1).max_depth(3).nodes();
+    let reached_nodes = graph
+        .traverse(nodes[0])
+        .outgoing()
+        .min_depth(1)
+        .max_depth(3)
+        .nodes();
     assert_eq!(reached_nodes, vec![nodes[1], nodes[2], nodes[3]]);
 
     Ok(())
@@ -44,11 +56,21 @@ fn test_traversal_direction_and_type_filters() -> Result<()> {
     graph.create_edge(parent, root, "PARENT_OF")?;
 
     // Outgoing with TYPE_A
-    let out_a = graph.traverse(root).outgoing().with_type("TYPE_A").min_depth(1).nodes();
+    let out_a = graph
+        .traverse(root)
+        .outgoing()
+        .with_type("TYPE_A")
+        .min_depth(1)
+        .nodes();
     assert_eq!(out_a, vec![child_a]);
 
     // Outgoing with multiple types: TYPE_A and TYPE_B
-    let out_both_types = graph.traverse(root).outgoing().with_types(["TYPE_A", "TYPE_B"]).min_depth(1).nodes();
+    let out_both_types = graph
+        .traverse(root)
+        .outgoing()
+        .with_types(["TYPE_A", "TYPE_B"])
+        .min_depth(1)
+        .nodes();
     assert_eq!(out_both_types.len(), 2);
     assert!(out_both_types.contains(&child_a));
     assert!(out_both_types.contains(&child_b));
@@ -58,7 +80,12 @@ fn test_traversal_direction_and_type_filters() -> Result<()> {
     assert_eq!(in_nodes, vec![parent]);
 
     // Both directions from root
-    let all_adjacent = graph.traverse(root).both().min_depth(1).max_depth(1).nodes();
+    let all_adjacent = graph
+        .traverse(root)
+        .both()
+        .min_depth(1)
+        .max_depth(1)
+        .nodes();
     assert_eq!(all_adjacent.len(), 3);
     assert!(all_adjacent.contains(&child_a));
     assert!(all_adjacent.contains(&child_b));
@@ -79,19 +106,32 @@ fn test_traversal_uniqueness_modes() -> Result<()> {
     // 1. Uniqueness::Node: path cannot visit the same node twice.
     // Paths from A: (A) [len 0], (A)->(B) [len 1].
     // From B, trying to go to A violates Node uniqueness.
-    let paths_node_unique = graph.traverse(a).outgoing().uniqueness(Uniqueness::Node).paths();
+    let paths_node_unique = graph
+        .traverse(a)
+        .outgoing()
+        .uniqueness(Uniqueness::Node)
+        .paths();
     assert_eq!(paths_node_unique.len(), 2);
 
     // 2. Uniqueness::Relationship: path can revisit node if using a different relationship.
     // Paths from A: (A), (A)->(B), (A)-[e1]->(B)-[e2]->(A).
     // From A, e1 has already been used, so it halts!
-    let paths_rel_unique = graph.traverse(a).outgoing().uniqueness(Uniqueness::Relationship).paths();
+    let paths_rel_unique = graph
+        .traverse(a)
+        .outgoing()
+        .uniqueness(Uniqueness::Relationship)
+        .paths();
     assert_eq!(paths_rel_unique.len(), 3);
     assert_eq!(paths_rel_unique[2].len(), 2);
     assert_eq!(paths_rel_unique[2].end_node(), a);
 
     // 3. Uniqueness::None: bounded by max_depth
-    let paths_none = graph.traverse(a).outgoing().uniqueness(Uniqueness::None).max_depth(4).paths();
+    let paths_none = graph
+        .traverse(a)
+        .outgoing()
+        .uniqueness(Uniqueness::None)
+        .max_depth(4)
+        .paths();
     // lengths 0, 1, 2, 3, 4
     assert_eq!(paths_none.len(), 5);
 
@@ -137,7 +177,11 @@ fn test_traverse_many() -> Result<()> {
     graph.create_edge(a1, b1, "ARROW")?;
     graph.create_edge(a2, b2, "ARROW")?;
 
-    let reached = graph.traverse_many(vec![a1, a2]).outgoing().min_depth(1).nodes();
+    let reached = graph
+        .traverse_many(vec![a1, a2])
+        .outgoing()
+        .min_depth(1)
+        .nodes();
     assert_eq!(reached.len(), 2);
     assert!(reached.contains(&b1));
     assert!(reached.contains(&b2));

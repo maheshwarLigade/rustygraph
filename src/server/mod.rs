@@ -4,13 +4,20 @@
 //! NoSQL document batch processing, vector embeddings similarity search,
 //! TTL expiration pruning, and distributed cluster membership over HTTP REST.
 
+pub mod auth;
 pub mod config;
+pub mod connection;
+pub mod crypto;
 pub mod dto;
 pub mod response;
 pub mod router;
 pub mod studio;
 
+pub use auth::{
+    AuthManager, Privilege, Role, SecurityContext, SessionToken, UserAccount, UserInfo,
+};
 pub use config::ServerConfig;
+pub use connection::ConnectionString;
 pub use dto::*;
 
 use crate::cluster::ClusterMode;
@@ -18,8 +25,8 @@ use crate::distributed::{ClusterPeer, DistributedClusterNode};
 use crate::error::{Error, Result};
 use crate::storage::db::StandaloneDatabase;
 use router::dispatch_route;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use tiny_http::{Header, Response, Server};
 
@@ -28,6 +35,7 @@ pub struct StandaloneServer {
     config: ServerConfig,
     db: Arc<StandaloneDatabase>,
     cluster: Option<Arc<DistributedClusterNode>>,
+    auth: Arc<AuthManager>,
     running: Arc<AtomicBool>,
 }
 
@@ -35,6 +43,12 @@ impl StandaloneServer {
     /// Initializes and starts the standalone HTTP and distributed cluster server.
     pub fn start(config: ServerConfig) -> Result<Arc<Self>> {
         let db = Arc::new(StandaloneDatabase::open(config.db_config.clone())?);
+
+        let auth = Arc::new(AuthManager::new(
+            config.auth_enabled,
+            Some(&config.db_config.data_dir),
+            config.default_admin_password.as_deref(),
+        )?);
 
         let cluster = if let Some(ref c_addr) = config.cluster_addr {
             let mode = if config.cluster_mode.to_lowercase() == "ap" {
@@ -69,12 +83,17 @@ impl StandaloneServer {
             config: config.clone(),
             db: Arc::clone(&db),
             cluster,
+            auth,
             running: Arc::new(AtomicBool::new(true)),
         });
 
         // Start HTTP Listener
-        let http_server = Server::http(&config.http_addr)
-            .map_err(|e| Error::Storage(format!("Failed to bind HTTP server to {}: {}", config.http_addr, e)))?;
+        let http_server = Server::http(&config.http_addr).map_err(|e| {
+            Error::Storage(format!(
+                "Failed to bind HTTP server to {}: {}",
+                config.http_addr, e
+            ))
+        })?;
 
         let server_worker = Arc::clone(&server_instance);
         thread::spawn(move || {
@@ -102,6 +121,11 @@ impl StandaloneServer {
         Arc::clone(&self.db)
     }
 
+    /// Returns the authentication manager.
+    pub fn auth(&self) -> Arc<AuthManager> {
+        Arc::clone(&self.auth)
+    }
+
     fn run_http_loop(&self, server: Server) {
         for mut request in server.incoming_requests() {
             if !self.running.load(Ordering::Relaxed) {
@@ -114,13 +138,42 @@ impl StandaloneServer {
             let mut body_bytes = Vec::new();
             let _ = request.as_reader().read_to_end(&mut body_bytes);
 
-            let resp = dispatch_route(&self.db, self.cluster.as_ref(), &method, &url, &body_bytes);
+            let auth_header = request
+                .headers()
+                .iter()
+                .find(|h| {
+                    h.field
+                        .as_str()
+                        .as_str()
+                        .eq_ignore_ascii_case("Authorization")
+                })
+                .map(|h| h.value.as_str().to_string());
+
+            let resp = dispatch_route(
+                &self.db,
+                self.cluster.as_ref(),
+                Some(&self.auth),
+                auth_header.as_deref(),
+                &method,
+                &url,
+                &body_bytes,
+            );
 
             // Add standard CORS and JSON headers
-            let header_cors = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
-            let header_methods = Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"GET, POST, DELETE, OPTIONS"[..]).unwrap();
-            let header_headers = Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"Content-Type"[..]).unwrap();
-            let header_content_type = Header::from_bytes(&b"Content-Type"[..], resp.content_type.as_bytes()).unwrap();
+            let header_cors =
+                Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+            let header_methods = Header::from_bytes(
+                &b"Access-Control-Allow-Methods"[..],
+                &b"GET, POST, DELETE, PUT, OPTIONS"[..],
+            )
+            .unwrap();
+            let header_headers = Header::from_bytes(
+                &b"Access-Control-Allow-Headers"[..],
+                &b"Content-Type, Authorization"[..],
+            )
+            .unwrap();
+            let header_content_type =
+                Header::from_bytes(&b"Content-Type"[..], resp.content_type.as_bytes()).unwrap();
 
             let response = Response::from_string(resp.body)
                 .with_status_code(resp.status)

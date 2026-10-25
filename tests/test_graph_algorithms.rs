@@ -41,9 +41,15 @@ fn test_dijkstra_weighted_pathfinding() -> Result<()> {
     let x = graph.create_node();
     let t = graph.create_node();
 
-    graph.create_edge_with(s, x, "STEP", |r| { r.set_prop("weight", 1.0); })?;
-    graph.create_edge_with(x, t, "STEP", |r| { r.set_prop("weight", 1.0); })?;
-    graph.create_edge_with(s, t, "STEP", |r| { r.set_prop("weight", 10.0); })?;
+    graph.create_edge_with(s, x, "STEP", |r| {
+        r.set_prop("weight", 1.0);
+    })?;
+    graph.create_edge_with(x, t, "STEP", |r| {
+        r.set_prop("weight", 1.0);
+    })?;
+    graph.create_edge_with(s, t, "STEP", |r| {
+        r.set_prop("weight", 10.0);
+    })?;
 
     // Dijkstra must pick the 2-hop path (weight 2.0) over the 1-hop path (weight 10.0)
     let (path, cost) = algo::dijkstra_by_prop(&graph, s, t, Direction::Outgoing, "weight").unwrap();
@@ -63,12 +69,25 @@ fn test_a_star_with_heuristic() -> Result<()> {
     let mut graph = Graph::new();
     // 2D grid pathfinding test
     // (0,0) -> (0,1) -> (1,1)
-    let n00 = graph.create_node_with(|n| { n.set_prop("x", 0.0); n.set_prop("y", 0.0); })?;
-    let n01 = graph.create_node_with(|n| { n.set_prop("x", 0.0); n.set_prop("y", 1.0); })?;
-    let n11 = graph.create_node_with(|n| { n.set_prop("x", 1.0); n.set_prop("y", 1.0); })?;
+    let n00 = graph.create_node_with(|n| {
+        n.set_prop("x", 0.0);
+        n.set_prop("y", 0.0);
+    })?;
+    let n01 = graph.create_node_with(|n| {
+        n.set_prop("x", 0.0);
+        n.set_prop("y", 1.0);
+    })?;
+    let n11 = graph.create_node_with(|n| {
+        n.set_prop("x", 1.0);
+        n.set_prop("y", 1.0);
+    })?;
 
-    graph.create_edge_with(n00, n01, "GRID", |r| { r.set_prop("dist", 1.0); })?;
-    graph.create_edge_with(n01, n11, "GRID", |r| { r.set_prop("dist", 1.0); })?;
+    graph.create_edge_with(n00, n01, "GRID", |r| {
+        r.set_prop("dist", 1.0);
+    })?;
+    graph.create_edge_with(n01, n11, "GRID", |r| {
+        r.set_prop("dist", 1.0);
+    })?;
 
     let (path, cost) = algo::a_star(
         &graph,
@@ -278,4 +297,3 @@ fn test_betweenness_centrality_bridge_detection() -> Result<()> {
 
     Ok(())
 }
-

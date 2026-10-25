@@ -68,8 +68,14 @@ fn test_cp_majority_quorum_write_replication() {
     assert_eq!(n3.graph().node_count(), 1);
 
     let n2_account = n2.graph().get_node(NodeId(101)).expect("replicated to n2");
-    assert_eq!(n2_account.prop("name").unwrap(), &PropertyValue::from("Alice"));
-    assert_eq!(n2_account.prop("balance").unwrap(), &PropertyValue::from(1000));
+    assert_eq!(
+        n2_account.prop("name").unwrap(),
+        &PropertyValue::from("Alice")
+    );
+    assert_eq!(
+        n2_account.prop("balance").unwrap(),
+        &PropertyValue::from(1000)
+    );
 }
 
 #[test]
@@ -106,7 +112,10 @@ fn test_cp_minority_partition_write_rejection_prevents_split_brain() {
 
     match write_res.unwrap_err() {
         GraphError::QuorumUnavailable(reason) => {
-            println!("Verified CP write rejection on minority partition: {}", reason);
+            println!(
+                "Verified CP write rejection on minority partition: {}",
+                reason
+            );
             assert!(reason.contains("Majority quorum lost"));
         }
         other => panic!("Expected QuorumUnavailable, got {:?}", other),
@@ -139,7 +148,14 @@ fn test_cp_minority_partition_write_rejection_prevents_split_brain() {
 
     assert_eq!(n1.graph().node_count(), 1);
     assert_eq!(n2.graph().node_count(), 1);
-    assert_eq!(n1.graph().get_node(NodeId(201)).unwrap().prop("amount").unwrap(), &PropertyValue::from(500));
+    assert_eq!(
+        n1.graph()
+            .get_node(NodeId(201))
+            .unwrap()
+            .prop("amount")
+            .unwrap(),
+        &PropertyValue::from(500)
+    );
 }
 
 #[test]

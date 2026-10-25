@@ -6,7 +6,7 @@
 # ------------------------------------------------------------------------------
 # Build Stage
 # ------------------------------------------------------------------------------
-FROM rust:1.82-bookworm AS builder
+FROM rust:latest AS builder
 
 WORKDIR /usr/src/rustygraph
 
@@ -17,9 +17,10 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 # Build release binaries with optimizations
-RUN cargo build --release --bin rustygraph-server --bin rustygraph-cli && \
+RUN cargo build --release --bins && \
     strip /usr/src/rustygraph/target/release/rustygraph-server && \
-    strip /usr/src/rustygraph/target/release/rustygraph-cli
+    strip /usr/src/rustygraph/target/release/rustygraph-cli && \
+    strip /usr/src/rustygraph/target/release/rustygraph-mcp
 
 # ------------------------------------------------------------------------------
 # Runtime Stage
@@ -42,6 +43,7 @@ RUN mkdir -p /data && \
 # Copy compiled binaries from builder stage
 COPY --from=builder /usr/src/rustygraph/target/release/rustygraph-server /usr/local/bin/rustygraph-server
 COPY --from=builder /usr/src/rustygraph/target/release/rustygraph-cli /usr/local/bin/rustygraph-cli
+COPY --from=builder /usr/src/rustygraph/target/release/rustygraph-mcp /usr/local/bin/rustygraph-mcp
 
 # Expose HTTP REST / Cypher API (8080) and Distributed Cluster TCP (7000)
 EXPOSE 8080 7000

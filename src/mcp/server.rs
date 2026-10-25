@@ -223,24 +223,43 @@ impl McpServer {
             "ping" => Some(JsonRpcResponse::success(req.id.clone(), json!({}))),
             "tools/list" => {
                 let tools = self.get_tool_definitions();
-                Some(JsonRpcResponse::success(req.id.clone(), json!({ "tools": tools })))
+                Some(JsonRpcResponse::success(
+                    req.id.clone(),
+                    json!({ "tools": tools }),
+                ))
             }
             "tools/call" => {
                 let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                let args = params
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
 
                 let tool_res = self.execute_tool(tool_name, &args);
-                Some(JsonRpcResponse::success(req.id.clone(), serde_json::to_value(tool_res).unwrap()))
+                Some(JsonRpcResponse::success(
+                    req.id.clone(),
+                    serde_json::to_value(tool_res).unwrap(),
+                ))
             }
             "resources/list" => {
                 let resources = self.get_resource_definitions();
-                Some(JsonRpcResponse::success(req.id.clone(), json!({ "resources": resources })))
+                Some(JsonRpcResponse::success(
+                    req.id.clone(),
+                    json!({ "resources": resources }),
+                ))
             }
             "resources/read" => {
                 let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
                 match self.read_resource(uri) {
-                    Ok(content) => Some(JsonRpcResponse::success(req.id.clone(), json!({ "contents": [content] }))),
-                    Err(e) => Some(JsonRpcResponse::error(req.id.clone(), -32002, format!("Resource not found: {e}"))),
+                    Ok(content) => Some(JsonRpcResponse::success(
+                        req.id.clone(),
+                        json!({ "contents": [content] }),
+                    )),
+                    Err(e) => Some(JsonRpcResponse::error(
+                        req.id.clone(),
+                        -32002,
+                        format!("Resource not found: {e}"),
+                    )),
                 }
             }
             other => Some(JsonRpcResponse::error(
@@ -280,19 +299,19 @@ impl McpServer {
             McpBackend::Graph(g_lock) => {
                 let mut g = match g_lock.write() {
                     Ok(guard) => guard,
-                    Err(e) => return ToolCallResult::error(format!("Lock acquisition failed: {e}")),
+                    Err(e) => {
+                        return ToolCallResult::error(format!("Lock acquisition failed: {e}"));
+                    }
                 };
                 match g.cypher_with_params(query, &query_params) {
                     Ok(res) => ToolCallResult::text(res.to_ascii_table()),
                     Err(e) => ToolCallResult::error(format!("Cypher error: {e}")),
                 }
             }
-            McpBackend::Database(db) => {
-                match db.cypher_with_params(query, &query_params) {
-                    Ok(res) => ToolCallResult::text(res.to_ascii_table()),
-                    Err(e) => ToolCallResult::error(format!("Cypher error: {e}")),
-                }
-            }
+            McpBackend::Database(db) => match db.cypher_with_params(query, &query_params) {
+                Ok(res) => ToolCallResult::text(res.to_ascii_table()),
+                Err(e) => ToolCallResult::error(format!("Cypher error: {e}")),
+            },
             McpBackend::Remote(url) => {
                 let body = json!({ "query": query, "params": query_params }).to_string();
                 match http_post(url, "/cypher", &body) {
@@ -316,7 +335,10 @@ impl McpServer {
         };
 
         let vector: Vec<f32> = match args.get("vector").and_then(|v| v.as_array()) {
-            Some(arr) => arr.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect(),
+            Some(arr) => arr
+                .iter()
+                .filter_map(|x| x.as_f64().map(|f| f as f32))
+                .collect(),
             None => return ToolCallResult::error("Missing required argument 'vector'"),
         };
 
@@ -326,20 +348,27 @@ impl McpServer {
             McpBackend::Graph(g_lock) => {
                 let g = match g_lock.read() {
                     Ok(guard) => guard,
-                    Err(e) => return ToolCallResult::error(format!("Lock acquisition failed: {e}")),
+                    Err(e) => {
+                        return ToolCallResult::error(format!("Lock acquisition failed: {e}"));
+                    }
                 };
                 match g.query_vector_index(index, k, &vector) {
                     Ok(hits) => {
                         let mut output = Vec::new();
                         for hit in hits {
-                            let props = g.get_node(hit.node_id).map(|n| n.properties.clone()).unwrap_or_default();
+                            let props = g
+                                .get_node(hit.node_id)
+                                .map(|n| n.properties.clone())
+                                .unwrap_or_default();
                             output.push(json!({
                                 "node_id": hit.node_id.raw(),
                                 "similarity_score": hit.score,
                                 "properties": props
                             }));
                         }
-                        ToolCallResult::text(serde_json::to_string_pretty(&output).unwrap_or_default())
+                        ToolCallResult::text(
+                            serde_json::to_string_pretty(&output).unwrap_or_default(),
+                        )
                     }
                     Err(e) => ToolCallResult::error(format!("Vector search error: {e}")),
                 }
@@ -347,18 +376,25 @@ impl McpServer {
             McpBackend::Database(db) => {
                 let res = db.graph().with_read(|g| {
                     g.query_vector_index(index, k, &vector).map(|hits| {
-                        hits.into_iter().map(|hit| {
-                            let props = g.get_node(hit.node_id).map(|n| n.properties.clone()).unwrap_or_default();
-                            json!({
-                                "node_id": hit.node_id.raw(),
-                                "similarity_score": hit.score,
-                                "properties": props
+                        hits.into_iter()
+                            .map(|hit| {
+                                let props = g
+                                    .get_node(hit.node_id)
+                                    .map(|n| n.properties.clone())
+                                    .unwrap_or_default();
+                                json!({
+                                    "node_id": hit.node_id.raw(),
+                                    "similarity_score": hit.score,
+                                    "properties": props
+                                })
                             })
-                        }).collect::<Vec<_>>()
+                            .collect::<Vec<_>>()
                     })
                 });
                 match res {
-                    Ok(hits) => ToolCallResult::text(serde_json::to_string_pretty(&hits).unwrap_or_default()),
+                    Ok(hits) => ToolCallResult::text(
+                        serde_json::to_string_pretty(&hits).unwrap_or_default(),
+                    ),
                     Err(e) => ToolCallResult::error(format!("Vector search error: {e}")),
                 }
             }
@@ -366,7 +402,11 @@ impl McpServer {
                 let body = json!({ "index": index, "vector": vector, "k": k }).to_string();
                 match http_post(url, "/vector/search", &body) {
                     Ok((status, text)) => {
-                        if status == 200 { ToolCallResult::text(text) } else { ToolCallResult::error(format!("HTTP {status}: {text}")) }
+                        if status == 200 {
+                            ToolCallResult::text(text)
+                        } else {
+                            ToolCallResult::error(format!("HTTP {status}: {text}"))
+                        }
                     }
                     Err(e) => ToolCallResult::error(format!("Remote HTTP failure: {e}")),
                 }
@@ -381,7 +421,10 @@ impl McpServer {
         };
 
         let vector: Vec<f32> = match args.get("vector").and_then(|v| v.as_array()) {
-            Some(arr) => arr.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect(),
+            Some(arr) => arr
+                .iter()
+                .filter_map(|x| x.as_f64().map(|f| f as f32))
+                .collect(),
             None => return ToolCallResult::error("Missing required argument 'vector'"),
         };
 
@@ -413,24 +456,30 @@ impl McpServer {
             McpBackend::Graph(g_lock) => {
                 let g = match g_lock.read() {
                     Ok(guard) => guard,
-                    Err(e) => return ToolCallResult::error(format!("Lock acquisition failed: {e}")),
+                    Err(e) => {
+                        return ToolCallResult::error(format!("Lock acquisition failed: {e}"));
+                    }
                 };
                 match execute_rag(&g) {
-                    Ok(v) => ToolCallResult::text(serde_json::to_string_pretty(&v).unwrap_or_default()),
+                    Ok(v) => {
+                        ToolCallResult::text(serde_json::to_string_pretty(&v).unwrap_or_default())
+                    }
                     Err(e) => ToolCallResult::error(format!("GraphRAG error: {e}")),
                 }
             }
-            McpBackend::Database(db) => {
-                match db.graph().with_read(|g| execute_rag(g)) {
-                    Ok(v) => ToolCallResult::text(serde_json::to_string_pretty(&v).unwrap_or_default()),
-                    Err(e) => ToolCallResult::error(format!("GraphRAG error: {e}")),
-                }
-            }
+            McpBackend::Database(db) => match db.graph().with_read(|g| execute_rag(g)) {
+                Ok(v) => ToolCallResult::text(serde_json::to_string_pretty(&v).unwrap_or_default()),
+                Err(e) => ToolCallResult::error(format!("GraphRAG error: {e}")),
+            },
             McpBackend::Remote(url) => {
                 let body = json!({ "index": index, "vector": vector, "k": k }).to_string();
                 match http_post(url, "/vector/search", &body) {
                     Ok((status, text)) => {
-                        if status == 200 { ToolCallResult::text(text) } else { ToolCallResult::error(format!("HTTP {status}: {text}")) }
+                        if status == 200 {
+                            ToolCallResult::text(text)
+                        } else {
+                            ToolCallResult::error(format!("HTTP {status}: {text}"))
+                        }
                     }
                     Err(e) => ToolCallResult::error(format!("Remote HTTP failure: {e}")),
                 }
@@ -448,13 +497,18 @@ impl McpServer {
             None => return ToolCallResult::error("Missing required argument 'query'"),
         };
         let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
-        let prefix = args.get("prefix").and_then(|v| v.as_bool()).unwrap_or(false);
+        let prefix = args
+            .get("prefix")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         match &self.backend {
             McpBackend::Graph(g_lock) => {
                 let g = match g_lock.read() {
                     Ok(guard) => guard,
-                    Err(e) => return ToolCallResult::error(format!("Lock acquisition failed: {e}")),
+                    Err(e) => {
+                        return ToolCallResult::error(format!("Lock acquisition failed: {e}"));
+                    }
                 };
                 let hits_res = if prefix {
                     g.query_fulltext_prefix(index, query, top_k)
@@ -466,14 +520,19 @@ impl McpServer {
                     Ok(hits) => {
                         let mut output = Vec::new();
                         for hit in hits {
-                            let props = g.get_node(hit.node_id).map(|n| n.properties.clone()).unwrap_or_default();
+                            let props = g
+                                .get_node(hit.node_id)
+                                .map(|n| n.properties.clone())
+                                .unwrap_or_default();
                             output.push(json!({
                                 "node_id": hit.node_id.raw(),
                                 "relevance_score": hit.score,
                                 "properties": props
                             }));
                         }
-                        ToolCallResult::text(serde_json::to_string_pretty(&output).unwrap_or_default())
+                        ToolCallResult::text(
+                            serde_json::to_string_pretty(&output).unwrap_or_default(),
+                        )
                     }
                     Err(e) => ToolCallResult::error(format!("Fulltext search error: {e}")),
                 }
@@ -486,26 +545,39 @@ impl McpServer {
                         g.query_fulltext_index(index, query, top_k)
                     };
                     hits_res.map(|hits| {
-                        hits.into_iter().map(|hit| {
-                            let props = g.get_node(hit.node_id).map(|n| n.properties.clone()).unwrap_or_default();
-                            json!({
-                                "node_id": hit.node_id.raw(),
-                                "relevance_score": hit.score,
-                                "properties": props
+                        hits.into_iter()
+                            .map(|hit| {
+                                let props = g
+                                    .get_node(hit.node_id)
+                                    .map(|n| n.properties.clone())
+                                    .unwrap_or_default();
+                                json!({
+                                    "node_id": hit.node_id.raw(),
+                                    "relevance_score": hit.score,
+                                    "properties": props
+                                })
                             })
-                        }).collect::<Vec<_>>()
+                            .collect::<Vec<_>>()
                     })
                 });
                 match res {
-                    Ok(hits) => ToolCallResult::text(serde_json::to_string_pretty(&hits).unwrap_or_default()),
+                    Ok(hits) => ToolCallResult::text(
+                        serde_json::to_string_pretty(&hits).unwrap_or_default(),
+                    ),
                     Err(e) => ToolCallResult::error(format!("Fulltext search error: {e}")),
                 }
             }
             McpBackend::Remote(url) => {
-                let body = json!({ "index": index, "query": query, "top_k": top_k, "prefix": prefix }).to_string();
+                let body =
+                    json!({ "index": index, "query": query, "top_k": top_k, "prefix": prefix })
+                        .to_string();
                 match http_post(url, "/fulltext/search", &body) {
                     Ok((status, text)) => {
-                        if status == 200 { ToolCallResult::text(text) } else { ToolCallResult::error(format!("HTTP {status}: {text}")) }
+                        if status == 200 {
+                            ToolCallResult::text(text)
+                        } else {
+                            ToolCallResult::error(format!("HTTP {status}: {text}"))
+                        }
                     }
                     Err(e) => ToolCallResult::error(format!("Remote HTTP failure: {e}")),
                 }
@@ -555,17 +627,25 @@ impl McpServer {
             McpBackend::Graph(g_lock) => {
                 let g = match g_lock.read() {
                     Ok(guard) => guard,
-                    Err(e) => return ToolCallResult::error(format!("Lock acquisition failed: {e}")),
+                    Err(e) => {
+                        return ToolCallResult::error(format!("Lock acquisition failed: {e}"));
+                    }
                 };
-                ToolCallResult::text(serde_json::to_string_pretty(&inspect_schema(&g)).unwrap_or_default())
+                ToolCallResult::text(
+                    serde_json::to_string_pretty(&inspect_schema(&g)).unwrap_or_default(),
+                )
             }
             McpBackend::Database(db) => {
                 let schema_val = db.graph().with_read(|g| inspect_schema(g));
                 ToolCallResult::text(serde_json::to_string_pretty(&schema_val).unwrap_or_default())
             }
-            McpBackend::Remote(url) => match http_get(url, "/stats") {
+            McpBackend::Remote(url) => match http_get(url, "/schema") {
                 Ok((status, text)) => {
-                    if status == 200 { ToolCallResult::text(text) } else { ToolCallResult::error(format!("HTTP {status}: {text}")) }
+                    if status == 200 {
+                        ToolCallResult::text(text)
+                    } else {
+                        ToolCallResult::error(format!("HTTP {status}: {text}"))
+                    }
                 }
                 Err(e) => ToolCallResult::error(format!("Remote HTTP failure: {e}")),
             },
@@ -582,46 +662,86 @@ impl McpServer {
         let execute_algo = |g: &Graph| -> Result<serde_json::Value> {
             match algorithm {
                 "pagerank" => {
-                    let damping = params.get("damping_factor").and_then(|v| v.as_f64()).unwrap_or(0.85);
-                    let max_iter = params.get("max_iterations").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+                    let damping = params
+                        .get("damping_factor")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.85);
+                    let max_iter = params
+                        .get("max_iterations")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(50) as usize;
                     let scores = crate::algo::pagerank(g, damping, max_iter, 1e-6);
-                    let mut sorted: Vec<(u64, f64)> = scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
+                    let mut sorted: Vec<(u64, f64)> =
+                        scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
                     sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
                     Ok(json!({ "algorithm": "pagerank", "top_ranked_nodes": sorted }))
                 }
                 "personalized_pagerank" => {
-                    let damping = params.get("damping_factor").and_then(|v| v.as_f64()).unwrap_or(0.85);
-                    let max_iter = params.get("max_iterations").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
-                    let seeds: Vec<NodeId> = params.get("seeds")
+                    let damping = params
+                        .get("damping_factor")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.85);
+                    let max_iter = params
+                        .get("max_iterations")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(50) as usize;
+                    let seeds: Vec<NodeId> = params
+                        .get("seeds")
                         .and_then(|v| v.as_array())
                         .map(|arr| arr.iter().filter_map(|x| x.as_u64().map(NodeId)).collect())
                         .unwrap_or_default();
-                    let scores = crate::algo::personalized_pagerank(g, &seeds, damping, max_iter, 1e-6);
-                    let mut sorted: Vec<(u64, f64)> = scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
+                    let scores =
+                        crate::algo::personalized_pagerank(g, &seeds, damping, max_iter, 1e-6);
+                    let mut sorted: Vec<(u64, f64)> =
+                        scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
                     sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
-                    Ok(json!({ "algorithm": "personalized_pagerank", "seeds": seeds.iter().map(|s| s.raw()).collect::<Vec<_>>(), "ranked_nodes": sorted }))
+                    Ok(
+                        json!({ "algorithm": "personalized_pagerank", "seeds": seeds.iter().map(|s| s.raw()).collect::<Vec<_>>(), "ranked_nodes": sorted }),
+                    )
                 }
                 "betweenness_centrality" => {
-                    let normalized = params.get("normalized").and_then(|v| v.as_bool()).unwrap_or(true);
-                    let dir_str = params.get("direction").and_then(|v| v.as_str()).unwrap_or("both");
+                    let normalized = params
+                        .get("normalized")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+                    let dir_str = params
+                        .get("direction")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("both");
                     let dir = match dir_str.to_lowercase().as_str() {
                         "outgoing" => Direction::Outgoing,
                         "incoming" => Direction::Incoming,
                         _ => Direction::Both,
                     };
                     let scores = crate::algo::betweenness_centrality(g, dir, normalized);
-                    let mut sorted: Vec<(u64, f64)> = scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
+                    let mut sorted: Vec<(u64, f64)> =
+                        scores.into_iter().map(|(id, s)| (id.raw(), s)).collect();
                     sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
-                    Ok(json!({ "algorithm": "betweenness_centrality", "direction": dir_str, "normalized": normalized, "top_nodes": sorted }))
+                    Ok(
+                        json!({ "algorithm": "betweenness_centrality", "direction": dir_str, "normalized": normalized, "top_nodes": sorted }),
+                    )
                 }
                 "shortest_path" => {
-                    let source = params.get("source").and_then(|v| v.as_u64()).map(NodeId).ok_or_else(|| {
-                        crate::error::GraphError::InvalidOperation("Missing required 'source' node ID".into())
-                    })?;
-                    let target = params.get("target").and_then(|v| v.as_u64()).map(NodeId).ok_or_else(|| {
-                        crate::error::GraphError::InvalidOperation("Missing required 'target' node ID".into())
-                    })?;
-                    let path_opt = crate::algo::shortest_path_bfs(g, source, target, Direction::Outgoing);
+                    let source = params
+                        .get("source")
+                        .and_then(|v| v.as_u64())
+                        .map(NodeId)
+                        .ok_or_else(|| {
+                            crate::error::GraphError::InvalidOperation(
+                                "Missing required 'source' node ID".into(),
+                            )
+                        })?;
+                    let target = params
+                        .get("target")
+                        .and_then(|v| v.as_u64())
+                        .map(NodeId)
+                        .ok_or_else(|| {
+                            crate::error::GraphError::InvalidOperation(
+                                "Missing required 'target' node ID".into(),
+                            )
+                        })?;
+                    let path_opt =
+                        crate::algo::shortest_path_bfs(g, source, target, Direction::Outgoing);
                     Ok(json!({
                         "algorithm": "shortest_path",
                         "source": source.raw(),
@@ -635,27 +755,47 @@ impl McpServer {
                 }
                 "wcc" => {
                     let components = crate::algo::weakly_connected_components(g);
-                    let formatted: Vec<Vec<u64>> = components.into_iter().map(|set| set.into_iter().map(|id| id.raw()).collect()).collect();
-                    Ok(json!({ "algorithm": "weakly_connected_components", "component_count": formatted.len(), "clusters": formatted }))
+                    let formatted: Vec<Vec<u64>> = components
+                        .into_iter()
+                        .map(|set| set.into_iter().map(|id| id.raw()).collect())
+                        .collect();
+                    Ok(
+                        json!({ "algorithm": "weakly_connected_components", "component_count": formatted.len(), "clusters": formatted }),
+                    )
                 }
                 "scc" => {
                     let components = crate::algo::strongly_connected_components(g);
-                    let formatted: Vec<Vec<u64>> = components.into_iter().map(|set| set.into_iter().map(|id| id.raw()).collect()).collect();
-                    Ok(json!({ "algorithm": "strongly_connected_components", "component_count": formatted.len(), "components": formatted }))
+                    let formatted: Vec<Vec<u64>> = components
+                        .into_iter()
+                        .map(|set| set.into_iter().map(|id| id.raw()).collect())
+                        .collect();
+                    Ok(
+                        json!({ "algorithm": "strongly_connected_components", "component_count": formatted.len(), "components": formatted }),
+                    )
                 }
                 "degree_centrality" => {
-                    let dir_str = params.get("direction").and_then(|v| v.as_str()).unwrap_or("both");
+                    let dir_str = params
+                        .get("direction")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("both");
                     let dir = match dir_str.to_lowercase().as_str() {
                         "outgoing" => Direction::Outgoing,
                         "incoming" => Direction::Incoming,
                         _ => Direction::Both,
                     };
                     let degrees = crate::algo::degree_centrality(g, dir);
-                    let mut sorted: Vec<(u64, usize)> = degrees.into_iter().map(|(id, deg)| (id.raw(), deg)).collect();
+                    let mut sorted: Vec<(u64, usize)> = degrees
+                        .into_iter()
+                        .map(|(id, deg)| (id.raw(), deg))
+                        .collect();
                     sorted.sort_by(|a, b| b.1.cmp(&a.1));
-                    Ok(json!({ "algorithm": "degree_centrality", "direction": dir_str, "top_nodes": sorted }))
+                    Ok(
+                        json!({ "algorithm": "degree_centrality", "direction": dir_str, "top_nodes": sorted }),
+                    )
                 }
-                other => Err(crate::error::GraphError::InvalidOperation(format!("Unsupported algorithm: '{other}'"))),
+                other => Err(crate::error::GraphError::InvalidOperation(format!(
+                    "Unsupported algorithm: '{other}'"
+                ))),
             }
         };
 
@@ -663,21 +803,44 @@ impl McpServer {
             McpBackend::Graph(g_lock) => {
                 let g = match g_lock.read() {
                     Ok(guard) => guard,
-                    Err(e) => return ToolCallResult::error(format!("Lock acquisition failed: {e}")),
+                    Err(e) => {
+                        return ToolCallResult::error(format!("Lock acquisition failed: {e}"));
+                    }
                 };
                 match execute_algo(&g) {
-                    Ok(v) => ToolCallResult::text(serde_json::to_string_pretty(&v).unwrap_or_default()),
+                    Ok(v) => {
+                        ToolCallResult::text(serde_json::to_string_pretty(&v).unwrap_or_default())
+                    }
                     Err(e) => ToolCallResult::error(format!("Algorithm execution error: {e}")),
                 }
             }
-            McpBackend::Database(db) => {
-                match db.graph().with_read(|g| execute_algo(g)) {
-                    Ok(v) => ToolCallResult::text(serde_json::to_string_pretty(&v).unwrap_or_default()),
-                    Err(e) => ToolCallResult::error(format!("Algorithm execution error: {e}")),
+            McpBackend::Database(db) => match db.graph().with_read(|g| execute_algo(g)) {
+                Ok(v) => ToolCallResult::text(serde_json::to_string_pretty(&v).unwrap_or_default()),
+                Err(e) => ToolCallResult::error(format!("Algorithm execution error: {e}")),
+            },
+            McpBackend::Remote(url) => {
+                let endpoint = match algorithm {
+                    "pagerank" | "personalized_pagerank" => "/algo/pagerank",
+                    "betweenness_centrality" | "degree_centrality" => "/algo/centrality",
+                    "shortest_path" => "/algo/shortest-path",
+                    "wcc" | "scc" => "/algo/community",
+                    _ => {
+                        return ToolCallResult::error(format!(
+                            "Unsupported algorithm for remote execution: {algorithm}"
+                        ));
+                    }
+                };
+                let body = params.to_string();
+                match http_post(url, endpoint, &body) {
+                    Ok((status, text)) => {
+                        if status == 200 {
+                            ToolCallResult::text(text)
+                        } else {
+                            ToolCallResult::error(format!("HTTP {status}: {text}"))
+                        }
+                    }
+                    Err(e) => ToolCallResult::error(format!("Remote HTTP failure: {e}")),
                 }
-            }
-            McpBackend::Remote(_) => {
-                ToolCallResult::error("Algorithm execution requires embedded graph or database backend")
             }
         }
     }
@@ -686,7 +849,12 @@ impl McpServer {
         match uri {
             "rustygraph://schema" => {
                 let schema_res = self.tool_get_schema();
-                let text = schema_res.content.into_iter().map(|c| c.text).collect::<Vec<_>>().join("\n");
+                let text = schema_res
+                    .content
+                    .into_iter()
+                    .map(|c| c.text)
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 Ok(ResourceContent {
                     uri: uri.to_string(),
                     mime_type: Some("application/json".to_string()),
@@ -702,9 +870,9 @@ impl McpServer {
                     McpBackend::Database(db) => {
                         serde_json::to_string_pretty(&db.stats()).unwrap_or_default()
                     }
-                    McpBackend::Remote(url) => {
-                        http_get(url, "/stats").map(|(_, text)| text).unwrap_or_default()
-                    }
+                    McpBackend::Remote(url) => http_get(url, "/stats")
+                        .map(|(_, text)| text)
+                        .unwrap_or_default(),
                 };
                 Ok(ResourceContent {
                     uri: uri.to_string(),
@@ -712,7 +880,9 @@ impl McpServer {
                     text: stats_json,
                 })
             }
-            other => Err(crate::error::GraphError::InvalidOperation(format!("Unknown resource URI: '{other}'"))),
+            other => Err(crate::error::GraphError::InvalidOperation(format!(
+                "Unknown resource URI: '{other}'"
+            ))),
         }
     }
 
@@ -738,7 +908,8 @@ impl McpServer {
                     }
                 }
                 Err(err) => {
-                    let err_resp = JsonRpcResponse::error(None, -32700, format!("Parse error: {err}"));
+                    let err_resp =
+                        JsonRpcResponse::error(None, -32700, format!("Parse error: {err}"));
                     let serialized = serde_json::to_string(&err_resp).unwrap();
                     stdout.write_all(serialized.as_bytes())?;
                     stdout.write_all(b"\n")?;
@@ -756,9 +927,7 @@ fn http_get(server_url: &str, path: &str) -> io::Result<(u16, String)> {
     let (host, port) = parse_url(server_url)?;
     let mut stream = TcpStream::connect(format!("{host}:{port}"))?;
 
-    let req = format!(
-        "GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
-    );
+    let req = format!("GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
     stream.write_all(req.as_bytes())?;
     read_http_response(stream)
 }

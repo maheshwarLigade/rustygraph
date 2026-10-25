@@ -1,0 +1,127 @@
+name: CI (Test & Lint)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  lint-and-format:
+    name: Code Formatting & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy lints
+        run: cargo clippy --all-targets --all-features
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: lint-and-format
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
+
+      - name: Run all tests (unit, integration, doc)
+        run: cargo test --all-targets --all-features
+
+      - name: Run doc tests
+        run: cargo test --doc
+
+  build-artifacts:
+    name: Build Dev Binaries (${{ matrix.os }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: rustygraph-dev-linux-x86_64
+            bin_path: target/release
+            ext: ""
+          - os: macos-latest
+            artifact_name: rustygraph-dev-macos-arm64
+            bin_path: target/release
+            ext: ""
+          - os: windows-latest
+            artifact_name: rustygraph-dev-windows-x86_64
+            bin_path: target/release
+            ext: ".exe"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: build-${{ matrix.os }}
+
+      - name: Compile release binaries
+        run: cargo build --release --bins
+
+      - name: Prepare dev artifact directory (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p staging/bin staging/lib
+          cp ${{ matrix.bin_path }}/rustygraph-server${{ matrix.ext }} staging/bin/
+          cp ${{ matrix.bin_path }}/rustygraph-cli${{ matrix.ext }} staging/bin/
+          cp ${{ matrix.bin_path }}/rustygraph-mcp${{ matrix.ext }} staging/bin/
+          cp ${{ matrix.bin_path }}/librusty_graph.* staging/lib/ 2>/dev/null || true
+          cp README.md LICENSE staging/
+
+      - name: Prepare dev artifact directory (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path staging\bin, staging\lib -Force
+          Copy-Item ${{ matrix.bin_path }}\rustygraph-server${{ matrix.ext }} staging\bin\
+          Copy-Item ${{ matrix.bin_path }}\rustygraph-cli${{ matrix.ext }} staging\bin\
+          Copy-Item ${{ matrix.bin_path }}\rustygraph-mcp${{ matrix.ext }} staging\bin\
+          Copy-Item ${{ matrix.bin_path }}\rusty_graph.dll staging\lib\ -ErrorAction SilentlyContinue
+          Copy-Item README.md, LICENSE staging\
+
+      - name: Upload dev artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: staging/
+          retention-days: 14

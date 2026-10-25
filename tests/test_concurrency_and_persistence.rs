@@ -81,8 +81,14 @@ fn test_json_persistence_round_trip_and_reindexing() -> Result<()> {
     let flights = restored.edges_with_type("FLIGHT");
     assert_eq!(flights.len(), 1);
     let flight_edge = restored.get_edge(flights[0]).unwrap();
-    assert_eq!(flight_edge.prop("carrier"), Some(&PropertyValue::from("BA")));
-    assert_eq!(flight_edge.prop("duration_hours"), Some(&PropertyValue::from(7.0)));
+    assert_eq!(
+        flight_edge.prop("carrier"),
+        Some(&PropertyValue::from("BA"))
+    );
+    assert_eq!(
+        flight_edge.prop("duration_hours"),
+        Some(&PropertyValue::from(7.0))
+    );
 
     // Verify we can create and use property indexes on restored graph
     restored.create_index("City", "name")?;

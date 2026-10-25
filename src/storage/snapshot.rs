@@ -47,7 +47,9 @@ impl SnapshotManager {
         let graph_json = graph.to_json()?;
 
         let final_path = self.dir.join(format!("snapshot_{:016}.db", sequence));
-        let meta_path = self.dir.join(format!("snapshot_{:016}.meta.json", sequence));
+        let meta_path = self
+            .dir
+            .join(format!("snapshot_{:016}.meta.json", sequence));
 
         let tmp_path = self.dir.join(format!("snapshot_{:016}.tmp", sequence));
         let tmp_meta = self.dir.join(format!("snapshot_{:016}.meta.tmp", sequence));
@@ -125,7 +127,9 @@ impl SnapshotManager {
         // Delete all beyond keep count
         for old in &list[self.keep_snapshots..] {
             let db_path = self.dir.join(format!("snapshot_{:016}.db", old.sequence));
-            let meta_path = self.dir.join(format!("snapshot_{:016}.meta.json", old.sequence));
+            let meta_path = self
+                .dir
+                .join(format!("snapshot_{:016}.meta.json", old.sequence));
             let _ = fs::remove_file(db_path);
             let _ = fs::remove_file(meta_path);
         }

@@ -122,7 +122,11 @@ pub fn personalized_pagerank(
     }
 
     // Filter valid seeds that actually exist in the graph
-    let valid_seeds: Vec<NodeId> = seeds.iter().copied().filter(|id| graph.contains_node(*id)).collect();
+    let valid_seeds: Vec<NodeId> = seeds
+        .iter()
+        .copied()
+        .filter(|id| graph.contains_node(*id))
+        .collect();
     if valid_seeds.is_empty() {
         return pagerank(graph, damping_factor, max_iterations, tolerance);
     }
@@ -133,7 +137,11 @@ pub fn personalized_pagerank(
 
     // Initial mass concentrated equally on valid seed nodes
     for node in graph.nodes() {
-        let initial = if valid_seeds.contains(&node.id) { seed_weight } else { 0.0 };
+        let initial = if valid_seeds.contains(&node.id) {
+            seed_weight
+        } else {
+            0.0
+        };
         scores.insert(node.id, initial);
     }
 
@@ -153,8 +161,16 @@ pub fn personalized_pagerank(
 
         for &node_id in &all_node_ids {
             let is_seed = valid_seeds.contains(&node_id);
-            let base_teleport = if is_seed { (1.0 - damping_factor) * seed_weight } else { 0.0 };
-            let dangling_contrib = if is_seed { damping_factor * dangling_sum * seed_weight } else { 0.0 };
+            let base_teleport = if is_seed {
+                (1.0 - damping_factor) * seed_weight
+            } else {
+                0.0
+            };
+            let dangling_contrib = if is_seed {
+                damping_factor * dangling_sum * seed_weight
+            } else {
+                0.0
+            };
 
             let mut incoming_sum = 0.0;
             if let Ok(edges) = graph.incident_edges(node_id, Direction::Incoming) {
@@ -232,7 +248,11 @@ pub fn betweenness_centrality(
 
             if let Ok(edges) = graph.incident_edges(v, direction) {
                 for edge in edges {
-                    let w = if edge.source == v { edge.target } else { edge.source };
+                    let w = if edge.source == v {
+                        edge.target
+                    } else {
+                        edge.source
+                    };
                     if !dist.contains_key(&w) {
                         continue;
                     }
@@ -298,4 +318,3 @@ pub fn betweenness_centrality(
 
     cb
 }
-

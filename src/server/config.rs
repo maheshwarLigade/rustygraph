@@ -10,6 +10,8 @@ pub struct ServerConfig {
     pub cluster_mode: String, // "cp" or "ap"
     pub peer_addrs: Vec<String>,
     pub db_config: DatabaseConfig,
+    pub auth_enabled: bool,
+    pub default_admin_password: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -21,6 +23,8 @@ impl Default for ServerConfig {
             cluster_mode: "cp".to_string(),
             peer_addrs: Vec::new(),
             db_config: DatabaseConfig::default(),
+            auth_enabled: false,
+            default_admin_password: Some("admin".to_string()),
         }
     }
 }

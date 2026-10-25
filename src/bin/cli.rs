@@ -1,3 +1,4 @@
+use rusty_graph::server::ConnectionString;
 use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::net::TcpStream;
@@ -8,12 +9,35 @@ fn main() {
 
     let mut server_url = "http://127.0.0.1:8000".to_string();
     let mut exec_query: Option<String> = None;
+    let mut auth_token: Option<String> = None;
+    let mut auth_user: Option<String> = None;
+    let mut auth_pass: Option<String> = None;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--uri" | "-u" if i + 1 < args.len() => {
+                let uri_str = &args[i + 1];
+                if let Ok(cs) = ConnectionString::parse(uri_str) {
+                    server_url = cs.to_http_url();
+                    auth_user = cs.username;
+                    auth_pass = cs.password;
+                } else {
+                    eprintln!("Invalid connection URI: {}", uri_str);
+                    std::process::exit(1);
+                }
+                i += 2;
+            }
             "--server" if i + 1 < args.len() => {
                 server_url = args[i + 1].clone();
+                i += 2;
+            }
+            "--username" | "--user" if i + 1 < args.len() => {
+                auth_user = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--password" | "--pass" if i + 1 < args.len() => {
+                auth_pass = Some(args[i + 1].clone());
                 i += 2;
             }
             "--exec" if i + 1 < args.len() => {
@@ -32,8 +56,20 @@ fn main() {
         }
     }
 
+    // Attempt login if credentials were provided
+    if let (Some(u), Some(p)) = (&auth_user, &auth_pass) {
+        let login_payload = serde_json::json!({ "username": u, "password": p }).to_string();
+        if let Ok((200, resp)) = http_post(&server_url, "/auth/login", &login_payload, None) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&resp) {
+                if let Some(token) = v.get("token").and_then(|t| t.as_str()) {
+                    auth_token = Some(format!("Bearer {}", token));
+                }
+            }
+        }
+    }
+
     if let Some(query) = exec_query {
-        execute_cypher_and_print(&server_url, &query, None);
+        execute_cypher_and_print(&server_url, &query, None, auth_token.as_deref());
         return;
     }
 
@@ -42,6 +78,9 @@ fn main() {
     println!("            🦀 RustyGraph Interactive Cypher REPL                    ");
     println!("=====================================================================");
     println!("  Connected to: {}", server_url);
+    if let Some(u) = &auth_user {
+        println!("  Authenticated as: {}", u);
+    }
     println!("  Type openCypher queries and press Enter.");
     println!("  Type :help for commands, :quit or :exit to leave.\n");
 
@@ -53,6 +92,8 @@ fn main() {
         if input_buffer.is_empty() {
             if let Some(tx_id) = active_tx {
                 print!("rustygraph (tx:{})> ", tx_id);
+            } else if let Some(u) = &auth_user {
+                print!("rustygraph ({})> ", u);
             } else {
                 print!("rustygraph> ");
             }
@@ -78,6 +119,48 @@ fn main() {
                 ":help" | ":h" => {
                     print_repl_commands();
                 }
+                s if s.starts_with(":login") => {
+                    let parts: Vec<&str> = s.split_whitespace().collect();
+                    if parts.len() >= 3 {
+                        let user = parts[1];
+                        let pass = parts[2];
+                        let payload =
+                            serde_json::json!({ "username": user, "password": pass }).to_string();
+                        match http_post(&server_url, "/auth/login", &payload, None) {
+                            Ok((200, resp)) => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&resp) {
+                                    if let Some(token) = v.get("token").and_then(|t| t.as_str()) {
+                                        auth_token = Some(format!("Bearer {}", token));
+                                        auth_user = Some(user.to_string());
+                                        println!("✅ Successfully authenticated as '{}'.", user);
+                                    }
+                                }
+                            }
+                            Ok((st, resp)) => {
+                                eprintln!("❌ Authentication failed (HTTP {}): {}", st, resp)
+                            }
+                            Err(e) => eprintln!("❌ Network error: {}", e),
+                        }
+                    } else {
+                        println!("Usage: :login <username> <password>");
+                    }
+                }
+                ":whoami" => {
+                    fetch_and_print_get(
+                        &server_url,
+                        "/auth/me",
+                        "User Security Context",
+                        auth_token.as_deref(),
+                    );
+                }
+                ":users" => {
+                    fetch_and_print_get(
+                        &server_url,
+                        "/auth/users",
+                        "Registered Database Users",
+                        auth_token.as_deref(),
+                    );
+                }
                 s if s.starts_with(":begin") => {
                     let parts: Vec<&str> = s.split_whitespace().collect();
                     let timeout_payload = if parts.len() > 1 {
@@ -89,27 +172,47 @@ fn main() {
                     } else {
                         "{}".to_string()
                     };
-                    match http_post(&server_url, "/tx/begin", &timeout_payload) {
+                    match http_post(
+                        &server_url,
+                        "/tx/begin",
+                        &timeout_payload,
+                        auth_token.as_deref(),
+                    ) {
                         Ok((200, resp)) => {
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&resp) {
                                 if let Some(id) = v.get("tx_id").and_then(|x| x.as_u64()) {
                                     active_tx = Some(id);
-                                    println!("⚡ Transaction {} started (snapshot isolation active).", id);
+                                    println!(
+                                        "⚡ Transaction {} started (snapshot isolation active).",
+                                        id
+                                    );
                                 }
                             }
                         }
-                        Ok((st, resp)) => eprintln!("❌ Failed to begin transaction (HTTP {}): {}", st, resp),
+                        Ok((st, resp)) => {
+                            eprintln!("❌ Failed to begin transaction (HTTP {}): {}", st, resp)
+                        }
                         Err(e) => eprintln!("❌ Network error: {}", e),
                     }
                 }
                 ":commit" => {
                     if let Some(id) = active_tx {
-                        match http_post(&server_url, &format!("/tx/{}/commit", id), "{}") {
+                        match http_post(
+                            &server_url,
+                            &format!("/tx/{}/commit", id),
+                            "{}",
+                            auth_token.as_deref(),
+                        ) {
                             Ok((200, _)) => {
-                                println!("✅ Transaction {} committed successfully to WAL and live database.", id);
+                                println!(
+                                    "✅ Transaction {} committed successfully to WAL and live database.",
+                                    id
+                                );
                                 active_tx = None;
                             }
-                            Ok((st, resp)) => eprintln!("❌ Failed to commit transaction (HTTP {}): {}", st, resp),
+                            Ok((st, resp)) => {
+                                eprintln!("❌ Failed to commit transaction (HTTP {}): {}", st, resp)
+                            }
                             Err(e) => eprintln!("❌ Network error: {}", e),
                         }
                     } else {
@@ -118,12 +221,23 @@ fn main() {
                 }
                 ":rollback" => {
                     if let Some(id) = active_tx {
-                        match http_post(&server_url, &format!("/tx/{}/rollback", id), "{}") {
+                        match http_post(
+                            &server_url,
+                            &format!("/tx/{}/rollback", id),
+                            "{}",
+                            auth_token.as_deref(),
+                        ) {
                             Ok((200, _)) => {
-                                println!("⏪ Transaction {} rolled back (staged changes discarded).", id);
+                                println!(
+                                    "⏪ Transaction {} rolled back (staged changes discarded).",
+                                    id
+                                );
                                 active_tx = None;
                             }
-                            Ok((st, resp)) => eprintln!("❌ Failed to rollback transaction (HTTP {}): {}", st, resp),
+                            Ok((st, resp)) => eprintln!(
+                                "❌ Failed to rollback transaction (HTTP {}): {}",
+                                st, resp
+                            ),
                             Err(e) => eprintln!("❌ Network error: {}", e),
                         }
                     } else {
@@ -134,20 +248,160 @@ fn main() {
                     if let Some(id) = active_tx {
                         println!("Current session active transaction: {}", id);
                     } else {
-                        fetch_and_print_get(&server_url, "/tx/list", "Active Server Transactions");
+                        fetch_and_print_get(
+                            &server_url,
+                            "/tx/list",
+                            "Active Server Transactions",
+                            auth_token.as_deref(),
+                        );
                     }
                 }
                 ":stats" => {
-                    fetch_and_print_get(&server_url, "/stats", "Database Statistics");
+                    fetch_and_print_get(
+                        &server_url,
+                        "/stats",
+                        "Database Statistics",
+                        auth_token.as_deref(),
+                    );
                 }
                 ":cluster" => {
-                    fetch_and_print_get(&server_url, "/cluster/status", "Cluster Status");
+                    fetch_and_print_get(
+                        &server_url,
+                        "/cluster/status",
+                        "Cluster Status",
+                        auth_token.as_deref(),
+                    );
                 }
                 ":checkpoint" => {
-                    fetch_and_print_post(&server_url, "/checkpoint", "{}", "Triggered Checkpoint");
+                    fetch_and_print_post(
+                        &server_url,
+                        "/checkpoint",
+                        "{}",
+                        "Triggered Checkpoint",
+                        auth_token.as_deref(),
+                    );
                 }
                 ":export" => {
-                    fetch_and_print_get(&server_url, "/export", "Graph Export");
+                    fetch_and_print_get(
+                        &server_url,
+                        "/export",
+                        "Graph Export",
+                        auth_token.as_deref(),
+                    );
+                }
+                ":schema" => {
+                    fetch_and_print_get(
+                        &server_url,
+                        "/schema",
+                        "Database Schema & Topology",
+                        auth_token.as_deref(),
+                    );
+                }
+                ":indexes" => {
+                    fetch_and_print_get(
+                        &server_url,
+                        "/indexes",
+                        "Active Database Indexes",
+                        auth_token.as_deref(),
+                    );
+                }
+                s if s.starts_with(":explain ") => {
+                    let query = s[9..].trim();
+                    let payload = serde_json::json!({ "query": query }).to_string();
+                    match http_post(
+                        &server_url,
+                        "/cypher/explain",
+                        &payload,
+                        auth_token.as_deref(),
+                    ) {
+                        Ok((200, resp)) => {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&resp) {
+                                if let Some(tree) = v.get("plan_tree").and_then(|t| t.as_str()) {
+                                    println!("\n📊 Cypher Execution Plan Tree:\n{}", tree);
+                                } else {
+                                    println!(
+                                        "{}",
+                                        serde_json::to_string_pretty(&v).unwrap_or(resp)
+                                    );
+                                }
+                            }
+                        }
+                        Ok((st, resp)) => eprintln!("❌ Explain failed (HTTP {}): {}", st, resp),
+                        Err(e) => eprintln!("❌ Network error: {}", e),
+                    }
+                }
+                s if s.starts_with(":algo") => {
+                    let parts: Vec<&str> = s.split_whitespace().collect();
+                    let algo_name = if parts.len() > 1 {
+                        parts[1]
+                    } else {
+                        "pagerank"
+                    };
+                    match algo_name {
+                        "pagerank" | "pr" => {
+                            let d = parts
+                                .get(2)
+                                .and_then(|x| x.parse::<f64>().ok())
+                                .unwrap_or(0.85);
+                            let iter = parts
+                                .get(3)
+                                .and_then(|x| x.parse::<usize>().ok())
+                                .unwrap_or(50);
+                            let body = serde_json::json!({ "damping": d, "max_iterations": iter })
+                                .to_string();
+                            fetch_and_print_post(
+                                &server_url,
+                                "/algo/pagerank",
+                                &body,
+                                "PageRank Results",
+                                auth_token.as_deref(),
+                            );
+                        }
+                        "shortest_path" | "sp" => {
+                            let src = parts
+                                .get(2)
+                                .and_then(|x| x.parse::<u64>().ok())
+                                .unwrap_or(0);
+                            let dst = parts
+                                .get(3)
+                                .and_then(|x| x.parse::<u64>().ok())
+                                .unwrap_or(1);
+                            let body = serde_json::json!({ "source": src, "target": dst, "algorithm": "bfs" }).to_string();
+                            fetch_and_print_post(
+                                &server_url,
+                                "/algo/shortest-path",
+                                &body,
+                                "Shortest Path BFS",
+                                auth_token.as_deref(),
+                            );
+                        }
+                        "community" | "wcc" => {
+                            let body = serde_json::json!({ "algorithm": "wcc" }).to_string();
+                            fetch_and_print_post(
+                                &server_url,
+                                "/algo/community",
+                                &body,
+                                "Connected Component Communities",
+                                auth_token.as_deref(),
+                            );
+                        }
+                        "centrality" | "betweenness" => {
+                            let body =
+                                serde_json::json!({ "metric": "betweenness", "direction": "both" })
+                                    .to_string();
+                            fetch_and_print_post(
+                                &server_url,
+                                "/algo/centrality",
+                                &body,
+                                "Betweenness Centrality",
+                                auth_token.as_deref(),
+                            );
+                        }
+                        _ => println!(
+                            "Unknown algorithm '{}'. Available: pagerank, shortest_path, community, centrality",
+                            algo_name
+                        ),
+                    }
                 }
                 _ => {
                     println!("Unknown command: {}. Type :help for commands.", trimmed);
@@ -163,13 +417,12 @@ fn main() {
         input_buffer.push_str(trimmed);
         input_buffer.push(' ');
 
-        // If query ends with semicolon, or single line without multi-line prompt
         if trimmed.ends_with(';') || (!trimmed.ends_with('\\') && !trimmed.ends_with(',')) {
             let query = input_buffer.trim().trim_end_matches(';').trim().to_string();
             input_buffer.clear();
 
             if !query.is_empty() {
-                execute_cypher_and_print(&server_url, &query, active_tx);
+                execute_cypher_and_print(&server_url, &query, active_tx, auth_token.as_deref());
             }
         }
     }
@@ -183,69 +436,84 @@ USAGE:
     rustygraph-cli [OPTIONS]
 
 OPTIONS:
-    --server <URL>    Server HTTP URL (default: http://127.0.0.1:8000)
-    --exec <QUERY>    Execute a single Cypher query and exit
-    -h, --help        Print help information
+    --uri, -u <URI>        Connection URI: rustygraph://user:pass@host:port/db
+    --server <URL>         Remote HTTP REST address (default: http://127.0.0.1:8000)
+    --username <USER>      Database username
+    --password <PASS>      Database user password
+    --exec <QUERY>         Execute a single openCypher query and exit
+    -h, --help             Print help information
 "#
     );
 }
 
 fn print_repl_commands() {
     println!(
-        r#"REPL Commands:
-  :begin [ms]   Start a multi-statement ACID transaction (default timeout 30s)
-  :commit       Commit active transaction to WAL and live database
-  :rollback     Rollback active transaction, discarding staged changes
-  :tx           Show active transaction ID or server transaction pool
-  :stats        View node counts, edge counts, and WAL sequence metrics
-  :cluster      View cluster topology, leader, and active peer nodes
-  :checkpoint   Force an immediate WAL flush and on-disk snapshot checkpoint
-  :export       Dump entire database topology as JSON
-  :help         Show this help menu
-  :quit, :exit  Exit the REPL
+        r#"
+Available REPL Commands:
+  :login <user> <pass> Authenticate session with username and password
+  :whoami              Display current user identity, roles, and privileges
+  :users               List registered database user accounts
+  :begin [timeout_ms]  Start a multi-statement ACID transaction
+  :commit              Commit current transaction to WAL
+  :rollback            Discard current transaction changes
+  :tx                  Show active transaction info or server transaction list
+  :stats               Display live database node/edge counts & WAL metrics
+  :schema              Display database schema, labels, and topology
+  :indexes             List all active property, vector, and full-text indexes
+  :explain <query>     Display visual Cypher query execution plan tree
+  :algo <name> [args]  Run graph algorithms (pagerank, shortest_path, community, centrality)
+  :cluster             Display distributed cluster role, term, and peer status
+  :checkpoint          Force atomic snapshot and WAL truncation
+  :export              Print JSON dump of full graph topology
+  :help, :h            Show this help menu
+  :quit, :exit, :q     Exit the REPL
 "#
     );
 }
 
-fn execute_cypher_and_print(server_url: &str, query: &str, tx_id: Option<u64>) {
-    let start = Instant::now();
-    let body = serde_json::json!({ "query": query }).to_string();
-    let endpoint = if let Some(id) = tx_id {
+fn execute_cypher_and_print(
+    server_url: &str,
+    query: &str,
+    tx_id: Option<u64>,
+    auth_header: Option<&str>,
+) {
+    let payload = serde_json::json!({ "query": query }).to_string();
+    let path = if let Some(id) = tx_id {
         format!("/tx/{}/cypher", id)
     } else {
         "/cypher".to_string()
     };
 
-    match http_post(server_url, &endpoint, &body) {
-        Ok((status, response)) => {
-            let duration = start.elapsed();
-            if status == 200 {
-                if let Ok(res_json) = serde_json::from_str::<serde_json::Value>(&response) {
-                    print_cypher_table(&res_json, duration);
-                } else {
-                    println!("{}", response);
-                }
+    let start = Instant::now();
+    match http_post(server_url, &path, &payload, auth_header) {
+        Ok((200, body)) => {
+            let elapsed = start.elapsed();
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                render_tabular_cypher_output(&json, elapsed);
             } else {
-                eprintln!("❌ Error (HTTP {}): {}", status, response);
+                println!("{}", body);
             }
         }
+        Ok((status, body)) => {
+            eprintln!("❌ Query Error (HTTP {}):", status);
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                if let Some(err_msg) = v.get("error").and_then(|e| e.as_str()) {
+                    eprintln!("   {}", err_msg);
+                } else {
+                    eprintln!("   {}", body);
+                }
+            } else {
+                eprintln!("   {}", body);
+            }
+            eprintln!();
+        }
         Err(e) => {
-            eprintln!("❌ Network error connecting to {}: {}", server_url, e);
+            eprintln!("❌ Network / Connection Error: {}", e);
         }
     }
 }
 
-fn print_cypher_table(json: &serde_json::Value, duration: std::time::Duration) {
-    let success = json.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-    if !success {
-        let err_msg = json
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown error");
-        println!("❌ Cypher Error: {}", err_msg);
-        return;
-    }
-
+fn render_tabular_cypher_output(json: &serde_json::Value, duration: std::time::Duration) {
     let columns = json
         .get("columns")
         .and_then(|v| v.as_array())
@@ -267,7 +535,6 @@ fn print_cypher_table(json: &serde_json::Value, duration: std::time::Duration) {
         return;
     }
 
-    // Determine column widths
     let mut widths = Vec::new();
     for col in &columns {
         widths.push(col.len().max(4));
@@ -286,20 +553,16 @@ fn print_cypher_table(json: &serde_json::Value, duration: std::time::Duration) {
         }
     }
 
-    // Format top border
     print_border(&widths, "┌", "┬", "┐");
 
-    // Header
     print!("│");
     for (i, col) in columns.iter().enumerate() {
         print!(" {:<width$} │", col, width = widths[i]);
     }
     println!();
 
-    // Separator
     print_border(&widths, "├", "┼", "┤");
 
-    // Rows
     for row in &rows {
         if let Some(cols) = row.as_array() {
             print!("│");
@@ -311,9 +574,13 @@ fn print_cypher_table(json: &serde_json::Value, duration: std::time::Duration) {
         }
     }
 
-    // Bottom border
     print_border(&widths, "└", "┴", "┘");
-    println!("({} {} in {:.2?})\n", rows.len(), if rows.len() == 1 { "row" } else { "rows" }, duration);
+    println!(
+        "({} {} in {:.2?})\n",
+        rows.len(),
+        if rows.len() == 1 { "row" } else { "rows" },
+        duration
+    );
 }
 
 fn print_border(widths: &[usize], left: &str, mid: &str, right: &str) {
@@ -335,8 +602,8 @@ fn format_val(val: &serde_json::Value) -> String {
     }
 }
 
-fn fetch_and_print_get(server_url: &str, path: &str, title: &str) {
-    match http_get(server_url, path) {
+fn fetch_and_print_get(server_url: &str, path: &str, title: &str, auth_header: Option<&str>) {
+    match http_get(server_url, path, auth_header) {
         Ok((status, body)) => {
             println!("\n--- {} (HTTP {}) ---", title, status);
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
@@ -350,8 +617,14 @@ fn fetch_and_print_get(server_url: &str, path: &str, title: &str) {
     }
 }
 
-fn fetch_and_print_post(server_url: &str, path: &str, payload: &str, title: &str) {
-    match http_post(server_url, path, payload) {
+fn fetch_and_print_post(
+    server_url: &str,
+    path: &str,
+    body: &str,
+    title: &str,
+    auth_header: Option<&str>,
+) {
+    match http_post(server_url, path, body, auth_header) {
         Ok((status, body)) => {
             println!("\n--- {} (HTTP {}) ---", title, status);
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
@@ -365,30 +638,46 @@ fn fetch_and_print_post(server_url: &str, path: &str, payload: &str, title: &str
     }
 }
 
-// Lightweight zero-dependency HTTP client using std::net::TcpStream
-fn http_get(server_url: &str, path: &str) -> io::Result<(u16, String)> {
+// Lightweight zero-dependency HTTP client with optional Authorization header
+fn http_get(server_url: &str, path: &str, auth_header: Option<&str>) -> io::Result<(u16, String)> {
     let (host, port) = parse_url(server_url)?;
     let mut stream = TcpStream::connect(format!("{}:{}", host, port))?;
 
+    let auth_line = match auth_header {
+        Some(h) => format!("Authorization: {}\r\n", h),
+        None => String::new(),
+    };
+
     let req = format!(
-        "GET {} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n",
-        path, host, port
+        "GET {} HTTP/1.1\r\nHost: {}:{}\r\n{}Connection: close\r\n\r\n",
+        path, host, port, auth_line
     );
     stream.write_all(req.as_bytes())?;
 
     read_http_response(stream)
 }
 
-fn http_post(server_url: &str, path: &str, body: &str) -> io::Result<(u16, String)> {
+fn http_post(
+    server_url: &str,
+    path: &str,
+    body: &str,
+    auth_header: Option<&str>,
+) -> io::Result<(u16, String)> {
     let (host, port) = parse_url(server_url)?;
     let mut stream = TcpStream::connect(format!("{}:{}", host, port))?;
 
+    let auth_line = match auth_header {
+        Some(h) => format!("Authorization: {}\r\n", h),
+        None => String::new(),
+    };
+
     let req = format!(
-        "POST {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "POST {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
         path,
         host,
         port,
         body.len(),
+        auth_line,
         body
     );
     stream.write_all(req.as_bytes())?;
@@ -432,7 +721,6 @@ fn read_http_response(mut stream: TcpStream) -> io::Result<(u16, String)> {
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(0);
 
-    // Body starts after empty line \r\n\r\n
     let body = if let Some(idx) = resp_str.find("\r\n\r\n") {
         resp_str[idx + 4..].to_string()
     } else {

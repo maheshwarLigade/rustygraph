@@ -9,7 +9,7 @@ fn test_cypher_mutations_create_set_delete() -> Result<()> {
 
     // 1. CREATE nodes and relationships
     let create_res = graph.cypher(
-        "CREATE (a:Person {name: 'Alice', age: 25})-[:KNOWS]->(b:Person {name: 'Bob', age: 30})"
+        "CREATE (a:Person {name: 'Alice', age: 25})-[:KNOWS]->(b:Person {name: 'Bob', age: 30})",
     )?;
     assert!(create_res.success);
     assert_eq!(graph.node_count(), 2);
@@ -18,7 +18,10 @@ fn test_cypher_mutations_create_set_delete() -> Result<()> {
     // 2. Query created entities
     let read_res = graph.cypher("MATCH (p:Person {name: 'Alice'}) RETURN p.name, p.age")?;
     assert_eq!(read_res.rows.len(), 1);
-    assert_eq!(read_res.rows[0][0], PropertyValue::String("Alice".to_string()));
+    assert_eq!(
+        read_res.rows[0][0],
+        PropertyValue::String("Alice".to_string())
+    );
     assert_eq!(read_res.rows[0][1], PropertyValue::Int(25));
 
     // 3. SET clause mutation
@@ -30,7 +33,10 @@ fn test_cypher_mutations_create_set_delete() -> Result<()> {
 
     // 4. Strict DELETE should fail when node has connected relationships
     let delete_err = graph.cypher("MATCH (p:Person {name: 'Alice'}) DELETE p");
-    assert!(delete_err.is_err(), "Strict DELETE without DETACH must fail when relationships exist");
+    assert!(
+        delete_err.is_err(),
+        "Strict DELETE without DETACH must fail when relationships exist"
+    );
 
     // 5. DETACH DELETE should succeed and clean up connected relationships
     let detach_res = graph.cypher("MATCH (p:Person {name: 'Alice'}) DETACH DELETE p")?;
@@ -55,7 +61,7 @@ fn test_cypher_aggregations_and_ordering() -> Result<()> {
 
     // 1. Aggregations: count(*), sum, avg, min, max
     let agg_res = graph.cypher(
-        "MATCH (p:Product) RETURN count(*), sum(p.price), avg(p.price), min(p.price), max(p.price)"
+        "MATCH (p:Product) RETURN count(*), sum(p.price), avg(p.price), min(p.price), max(p.price)",
     )?;
     assert_eq!(agg_res.rows.len(), 1);
     let row = &agg_res.rows[0];
@@ -66,23 +72,33 @@ fn test_cypher_aggregations_and_ordering() -> Result<()> {
     assert_eq!(row[4], PropertyValue::Int(1200)); // max
 
     // 2. ORDER BY DESC with LIMIT
-    let order_desc = graph.cypher(
-        "MATCH (p:Product) RETURN p.name, p.price ORDER BY p.price DESC LIMIT 2"
-    )?;
+    let order_desc =
+        graph.cypher("MATCH (p:Product) RETURN p.name, p.price ORDER BY p.price DESC LIMIT 2")?;
     assert_eq!(order_desc.rows.len(), 2);
-    assert_eq!(order_desc.rows[0][0], PropertyValue::String("Laptop".to_string()));
+    assert_eq!(
+        order_desc.rows[0][0],
+        PropertyValue::String("Laptop".to_string())
+    );
     assert_eq!(order_desc.rows[0][1], PropertyValue::Int(1200));
-    assert_eq!(order_desc.rows[1][0], PropertyValue::String("Monitor".to_string()));
+    assert_eq!(
+        order_desc.rows[1][0],
+        PropertyValue::String("Monitor".to_string())
+    );
     assert_eq!(order_desc.rows[1][1], PropertyValue::Int(400));
 
     // 3. ORDER BY ASC
-    let order_asc = graph.cypher(
-        "MATCH (p:Product) RETURN p.name, p.price ORDER BY p.price ASC LIMIT 2"
-    )?;
+    let order_asc =
+        graph.cypher("MATCH (p:Product) RETURN p.name, p.price ORDER BY p.price ASC LIMIT 2")?;
     assert_eq!(order_asc.rows.len(), 2);
-    assert_eq!(order_asc.rows[0][0], PropertyValue::String("Mouse".to_string()));
+    assert_eq!(
+        order_asc.rows[0][0],
+        PropertyValue::String("Mouse".to_string())
+    );
     assert_eq!(order_asc.rows[0][1], PropertyValue::Int(50));
-    assert_eq!(order_asc.rows[1][0], PropertyValue::String("Keyboard".to_string()));
+    assert_eq!(
+        order_asc.rows[1][0],
+        PropertyValue::String("Keyboard".to_string())
+    );
     assert_eq!(order_asc.rows[1][1], PropertyValue::Int(150));
 
     Ok(())
@@ -90,7 +106,10 @@ fn test_cypher_aggregations_and_ordering() -> Result<()> {
 
 #[test]
 fn test_acid_transaction_commit_and_isolation() -> Result<()> {
-    let temp_dir = std::env::temp_dir().join(format!("rusty_tx_test_{}", std::time::SystemTime::now().elapsed().unwrap().as_nanos()));
+    let temp_dir = std::env::temp_dir().join(format!(
+        "rusty_tx_test_{}",
+        std::time::SystemTime::now().elapsed().unwrap().as_nanos()
+    ));
     fs::create_dir_all(&temp_dir)?;
 
     let config = DatabaseConfig {
@@ -112,16 +131,30 @@ fn test_acid_transaction_commit_and_isolation() -> Result<()> {
     // 2. Execute statements inside transaction
     db.execute_tx(tx_id, "CREATE (u:User {name: 'Alice', role: 'admin'})")?;
     db.execute_tx(tx_id, "CREATE (u:User {name: 'Bob', role: 'member'})")?;
-    db.execute_tx(tx_id, "MATCH (u:User {name: 'Alice'}) SET u.status = 'active'")?;
+    db.execute_tx(
+        tx_id,
+        "MATCH (u:User {name: 'Alice'}) SET u.status = 'active'",
+    )?;
 
     // 3. ISOLATION CHECK: Live database must NOT see staged uncommitted writes
     let live_res = db.cypher("MATCH (u:User) RETURN u.name")?;
-    assert_eq!(live_res.rows.len(), 1, "Live database must remain isolated before commit");
-    assert_eq!(live_res.rows[0][0], PropertyValue::String("Root".to_string()));
+    assert_eq!(
+        live_res.rows.len(),
+        1,
+        "Live database must remain isolated before commit"
+    );
+    assert_eq!(
+        live_res.rows[0][0],
+        PropertyValue::String("Root".to_string())
+    );
 
     // 4. TRANSACTION VIEW: Transaction sees its own staged writes
     let tx_res = db.execute_tx(tx_id, "MATCH (u:User) RETURN u.name")?;
-    assert_eq!(tx_res.rows.len(), 3, "Transaction must see its own uncommitted modifications");
+    assert_eq!(
+        tx_res.rows.len(),
+        3,
+        "Transaction must see its own uncommitted modifications"
+    );
 
     // 5. COMMIT: Persist staged mutations to live database and WAL
     db.commit_transaction(tx_id)?;
@@ -137,7 +170,10 @@ fn test_acid_transaction_commit_and_isolation() -> Result<()> {
 
 #[test]
 fn test_acid_transaction_rollback() -> Result<()> {
-    let temp_dir = std::env::temp_dir().join(format!("rusty_tx_rollback_{}", std::time::SystemTime::now().elapsed().unwrap().as_nanos()));
+    let temp_dir = std::env::temp_dir().join(format!(
+        "rusty_tx_rollback_{}",
+        std::time::SystemTime::now().elapsed().unwrap().as_nanos()
+    ));
     fs::create_dir_all(&temp_dir)?;
 
     let config = DatabaseConfig {
@@ -153,7 +189,10 @@ fn test_acid_transaction_rollback() -> Result<()> {
     // Begin and execute mutations
     let tx_id = db.begin_transaction(Some(Duration::from_secs(10)))?;
     db.execute_tx(tx_id, "CREATE (u:User {name: 'Ghost'})")?;
-    db.execute_tx(tx_id, "MATCH (u:User {name: 'Original'}) SET u.name = 'Mutated'")?;
+    db.execute_tx(
+        tx_id,
+        "MATCH (u:User {name: 'Original'}) SET u.name = 'Mutated'",
+    )?;
 
     // Rollback transaction
     db.rollback_transaction(tx_id)?;
@@ -176,7 +215,10 @@ fn test_acid_transaction_rollback() -> Result<()> {
 
 #[test]
 fn test_acid_transaction_timeout_expiration() -> Result<()> {
-    let temp_dir = std::env::temp_dir().join(format!("rusty_tx_timeout_{}", std::time::SystemTime::now().elapsed().unwrap().as_nanos()));
+    let temp_dir = std::env::temp_dir().join(format!(
+        "rusty_tx_timeout_{}",
+        std::time::SystemTime::now().elapsed().unwrap().as_nanos()
+    ));
     fs::create_dir_all(&temp_dir)?;
 
     let config = DatabaseConfig {
@@ -196,11 +238,17 @@ fn test_acid_transaction_timeout_expiration() -> Result<()> {
 
     // Attempting to execute in expired transaction must return an error
     let exec_res = db.execute_tx(tx_id, "CREATE (n:Test)");
-    assert!(exec_res.is_err(), "Execution in expired transaction must fail");
+    assert!(
+        exec_res.is_err(),
+        "Execution in expired transaction must fail"
+    );
 
     // Attempting to commit expired transaction must fail
     let commit_res = db.commit_transaction(tx_id);
-    assert!(commit_res.is_err(), "Commit on expired transaction must fail");
+    assert!(
+        commit_res.is_err(),
+        "Commit on expired transaction must fail"
+    );
 
     // Reaper removes it
     let reaped = db.tx_manager().reap_expired();
@@ -212,7 +260,10 @@ fn test_acid_transaction_timeout_expiration() -> Result<()> {
 
 #[test]
 fn test_acid_transaction_crash_recovery_from_wal() -> Result<()> {
-    let temp_dir = std::env::temp_dir().join(format!("rusty_tx_recovery_{}", std::time::SystemTime::now().elapsed().unwrap().as_nanos()));
+    let temp_dir = std::env::temp_dir().join(format!(
+        "rusty_tx_recovery_{}",
+        std::time::SystemTime::now().elapsed().unwrap().as_nanos()
+    ));
     fs::create_dir_all(&temp_dir)?;
 
     let config = DatabaseConfig {
@@ -236,7 +287,11 @@ fn test_acid_transaction_crash_recovery_from_wal() -> Result<()> {
     {
         let db2 = StandaloneDatabase::open(config)?;
         let res = db2.cypher("MATCH (p:Product) RETURN p.name, p.price ORDER BY p.price DESC")?;
-        assert_eq!(res.rows.len(), 2, "Committed transaction operations must be restored from WAL");
+        assert_eq!(
+            res.rows.len(),
+            2,
+            "Committed transaction operations must be restored from WAL"
+        );
         assert_eq!(res.rows[0][0], PropertyValue::String("GPU".to_string()));
         assert_eq!(res.rows[0][1], PropertyValue::Int(800));
         assert_eq!(res.rows[1][0], PropertyValue::String("CPU".to_string()));

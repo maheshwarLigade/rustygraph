@@ -14,10 +14,11 @@ impl QueryValue {
     pub fn resolve(&self, params: &HashMap<String, PropertyValue>) -> Result<PropertyValue> {
         match self {
             QueryValue::Literal(v) => Ok(v.clone()),
-            QueryValue::Parameter(name) => params
-                .get(name)
-                .cloned()
-                .ok_or_else(|| GraphError::InvalidOperation(format!("Missing parameter '${name}' for Cypher query"))),
+            QueryValue::Parameter(name) => params.get(name).cloned().ok_or_else(|| {
+                GraphError::InvalidOperation(format!(
+                    "Missing parameter '${name}' for Cypher query"
+                ))
+            }),
         }
     }
 }
@@ -63,15 +64,15 @@ pub struct WhereClause {
 /// Aggregation or projection kinds in RETURN statements.
 #[derive(Debug, Clone)]
 pub enum ReturnKind {
-    Property(String, String),             // alias.prop
-    Node(String),                         // alias
-    CountStar,                            // count(*)
-    Count(String, Option<String>, bool),  // count(p) or count(DISTINCT p.age)
-    Sum(String, String),                  // sum(p.age)
-    Avg(String, String),                  // avg(p.age)
-    Min(String, String),                  // min(p.age)
-    Max(String, String),                  // max(p.age)
-    Collect(String, Option<String>, bool),// collect(p) or collect(DISTINCT p.name)
+    Property(String, String),              // alias.prop
+    Node(String),                          // alias
+    CountStar,                             // count(*)
+    Count(String, Option<String>, bool),   // count(p) or count(DISTINCT p.age)
+    Sum(String, String),                   // sum(p.age)
+    Avg(String, String),                   // avg(p.age)
+    Min(String, String),                   // min(p.age)
+    Max(String, String),                   // max(p.age)
+    Collect(String, Option<String>, bool), // collect(p) or collect(DISTINCT p.name)
 }
 
 /// A projected item in a RETURN clause.
@@ -130,6 +131,9 @@ pub struct AstQuery {
 impl AstQuery {
     /// Returns true if this AST contains any mutation clauses (CREATE, MERGE, SET, DELETE, DETACH).
     pub fn is_mutation(&self) -> bool {
-        !self.creates.is_empty() || !self.merges.is_empty() || !self.set_clauses.is_empty() || !self.delete_clauses.is_empty()
+        !self.creates.is_empty()
+            || !self.merges.is_empty()
+            || !self.set_clauses.is_empty()
+            || !self.delete_clauses.is_empty()
     }
 }

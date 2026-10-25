@@ -141,7 +141,11 @@ pub enum SimulatedClusterMessage {
 /// latency, packet loss, and healing between cluster nodes without real socket overhead.
 #[derive(Debug, Default)]
 pub struct VirtualNetwork {
-    mailboxes: Arc<RwLock<HashMap<ClusterNodeId, Arc<Mutex<VecDeque<(ClusterNodeId, SimulatedClusterMessage)>>>>>>,
+    mailboxes: Arc<
+        RwLock<
+            HashMap<ClusterNodeId, Arc<Mutex<VecDeque<(ClusterNodeId, SimulatedClusterMessage)>>>>,
+        >,
+    >,
     partitions: Arc<RwLock<HashSet<(ClusterNodeId, ClusterNodeId)>>>,
 }
 
@@ -157,12 +161,19 @@ impl VirtualNetwork {
     /// Register a cluster node with its in-memory message mailbox.
     pub fn register_node(&self, id: ClusterNodeId) {
         let mut mailboxes = self.mailboxes.write().unwrap();
-        mailboxes.entry(id).or_insert_with(|| Arc::new(Mutex::new(VecDeque::new())));
+        mailboxes
+            .entry(id)
+            .or_insert_with(|| Arc::new(Mutex::new(VecDeque::new())));
     }
 
     /// Send a message from `from` node to `to` node.
     /// Fails if a network partition separates `from` and `to`.
-    pub fn send(&self, from: ClusterNodeId, to: ClusterNodeId, msg: SimulatedClusterMessage) -> Result<()> {
+    pub fn send(
+        &self,
+        from: ClusterNodeId,
+        to: ClusterNodeId,
+        msg: SimulatedClusterMessage,
+    ) -> Result<()> {
         if self.is_partitioned(from, to) {
             return Err(GraphError::ClusterError(format!(
                 "Network partition: connection severed between Node {from} and Node {to}"
@@ -175,7 +186,9 @@ impl VirtualNetwork {
             queue.push_back((from, msg));
             Ok(())
         } else {
-            Err(GraphError::ClusterError(format!("Destination node {to} not registered in virtual network")))
+            Err(GraphError::ClusterError(format!(
+                "Destination node {to} not registered in virtual network"
+            )))
         }
     }
 
@@ -475,13 +488,17 @@ impl ClusterNode {
 
         for (sender, msg) in messages {
             match msg {
-                SimulatedClusterMessage::RequestVote { term, candidate_id, .. } => {
+                SimulatedClusterMessage::RequestVote {
+                    term, candidate_id, ..
+                } => {
                     let grant = if term > self.current_term {
                         self.current_term = term;
                         self.role = ClusterRole::Follower;
                         self.voted_for = Some(candidate_id);
                         true
-                    } else if term == self.current_term && (self.voted_for.is_none() || self.voted_for == Some(candidate_id)) {
+                    } else if term == self.current_term
+                        && (self.voted_for.is_none() || self.voted_for == Some(candidate_id))
+                    {
                         self.voted_for = Some(candidate_id);
                         true
                     } else {
@@ -496,14 +513,23 @@ impl ClusterNode {
                     let _ = self.network.send(self.id, sender, resp);
                 }
 
-                SimulatedClusterMessage::AppendEntries { term, leader_id, entries, leader_commit } => {
+                SimulatedClusterMessage::AppendEntries {
+                    term,
+                    leader_id,
+                    entries,
+                    leader_commit,
+                } => {
                     if term >= self.current_term {
                         self.current_term = term;
                         self.role = ClusterRole::Follower;
                         self.current_leader = Some(leader_id);
 
                         for entry in entries {
-                            if !self.log.iter().any(|e| e.term == entry.term && e.index == entry.index) {
+                            if !self
+                                .log
+                                .iter()
+                                .any(|e| e.term == entry.term && e.index == entry.index)
+                            {
                                 self.log.push(entry.clone());
                                 apply_command_to_graph(&mut self.graph, &entry.command)?;
                             }
@@ -561,7 +587,11 @@ impl ClusterNode {
 /// Applies a replicated cluster mutation command directly to the Graph state machine.
 pub fn apply_command_to_graph(graph: &mut Graph, cmd: &ClusterCommand) -> Result<()> {
     match cmd {
-        ClusterCommand::CreateNode { id, labels, properties } => {
+        ClusterCommand::CreateNode {
+            id,
+            labels,
+            properties,
+        } => {
             let mut node = Node::new(*id);
             node.labels = labels.iter().cloned().collect();
             node.properties = properties.clone().into();
@@ -580,7 +610,13 @@ pub fn apply_command_to_graph(graph: &mut Graph, cmd: &ClusterCommand) -> Result
                 node.remove_prop(key);
             }
         }
-        ClusterCommand::CreateEdge { id, source, target, rel_type, properties } => {
+        ClusterCommand::CreateEdge {
+            id,
+            source,
+            target,
+            rel_type,
+            properties,
+        } => {
             let mut rel = Relationship::new(*id, *source, *target, rel_type.clone());
             rel.properties = properties.clone().into();
             graph.insert_edge_exact(rel)?;

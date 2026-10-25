@@ -82,13 +82,16 @@ fn test_nested_nosql_document_paths_and_cypher() -> Result<()> {
     );
 
     // 3. openCypher WHERE query using nested NoSQL dot-paths
-    let res = graph.cypher("MATCH (u:User) WHERE u.profile.contact.city = 'Oakland' RETURN u.name, u.profile.tier")?;
+    let res = graph.cypher(
+        "MATCH (u:User) WHERE u.profile.contact.city = 'Oakland' RETURN u.name, u.profile.tier",
+    )?;
     assert_eq!(res.rows.len(), 1);
     assert_eq!(res.rows[0][0], PropertyValue::from("Alice"));
     assert_eq!(res.rows[0][1], PropertyValue::from("enterprise"));
 
     // 4. openCypher SET clause with nested dot-path mutation
-    let _ = graph.cypher("MATCH (u:User) WHERE u.name = 'Alice' SET u.profile.contact.state = 'CA'")?;
+    let _ =
+        graph.cypher("MATCH (u:User) WHERE u.name = 'Alice' SET u.profile.contact.state = 'CA'")?;
     assert_eq!(
         graph.get_node_property(alice, "profile.contact.state"),
         Some(&PropertyValue::from("CA"))
@@ -193,7 +196,10 @@ fn test_high_throughput_bulk_ingestion() -> Result<()> {
     for i in 0..50 {
         let mut props = HashMap::new();
         props.insert("seq".to_string(), PropertyValue::from(i as i64));
-        props.insert("payload".to_string(), PropertyValue::from(format!("node_{}", i)));
+        props.insert(
+            "payload".to_string(),
+            PropertyValue::from(format!("node_{}", i)),
+        );
         batch_nodes.push((vec!["BatchItem".to_string()], props));
     }
 
@@ -256,7 +262,11 @@ fn test_http_bulk_and_ttl_endpoints() -> Result<()> {
         let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
         let req = format!(
             "{} {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
-            method, path, port, body.len(), body
+            method,
+            path,
+            port,
+            body.len(),
+            body
         );
         stream.write_all(req.as_bytes()).unwrap();
 

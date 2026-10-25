@@ -1,9 +1,9 @@
 use rusty_graph::db::DatabaseConfig;
-use rusty_graph::server::{ServerConfig, StandaloneServer};
+use rusty_graph::server::{ConnectionString, ServerConfig, StandaloneServer};
 use std::env;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -22,6 +22,8 @@ fn main() {
     let mut peer_addrs = Vec::new();
     let mut data_dir = PathBuf::from("./data");
     let mut fsync_policy = "always".to_string();
+    let mut auth_enabled = true;
+    let mut admin_password = "admin".to_string();
 
     let mut i = 1;
     while i < args.len() {
@@ -63,6 +65,18 @@ fn main() {
                 fsync_policy = args[i + 1].clone();
                 i += 2;
             }
+            "--auth" => {
+                auth_enabled = true;
+                i += 1;
+            }
+            "--no-auth" => {
+                auth_enabled = false;
+                i += 1;
+            }
+            "--admin-pass" | "--admin-password" if i + 1 < args.len() => {
+                admin_password = args[i + 1].clone();
+                i += 2;
+            }
             _ => {
                 eprintln!("Unknown argument: {}", args[i]);
                 print_help();
@@ -71,11 +85,29 @@ fn main() {
         }
     }
 
+    let conn_str = if auth_enabled {
+        format!("rustygraph://admin:{}@{}", admin_password, http_addr)
+    } else {
+        format!("rustygraph://{}", http_addr)
+    };
+    let masked_conn = ConnectionString::parse(&conn_str)
+        .map(|cs| cs.to_masked_string())
+        .unwrap_or(conn_str);
+
     println!("=====================================================================");
     println!("        🦀 RustyGraph Standalone Distributed NoSQL Server            ");
     println!("=====================================================================");
     println!("  Node ID:          {}", node_id);
     println!("  HTTP REST API:    http://{}", http_addr);
+    println!("  Connection URI:   {}", masked_conn);
+    println!(
+        "  Authentication:   {}",
+        if auth_enabled {
+            "Enabled (RBAC Active)"
+        } else {
+            "Disabled"
+        }
+    );
     if let Some(ref c_addr) = cluster_addr {
         println!("  Cluster TCP:      tcp://{}", c_addr);
         println!("  Cluster Mode:     {}", cluster_mode.to_uppercase());
@@ -101,6 +133,8 @@ fn main() {
         cluster_mode,
         peer_addrs,
         db_config,
+        auth_enabled,
+        default_admin_password: Some(admin_password),
     };
 
     let server = match StandaloneServer::start(server_config) {
@@ -147,6 +181,9 @@ OPTIONS:
     --peers <ADDR,ADDR>    Comma-separated list of existing peer cluster TCP addresses
     --data-dir <DIR>       Path to durable database directory (default: ./data)
     --fsync <POLICY>       Disk sync policy: always | periodic | never (default: always)
+    --auth                 Enable authentication and RBAC (default)
+    --no-auth              Disable authentication
+    --admin-pass <PASS>    Initial password for root 'admin' user (default: admin)
     -h, --help             Print help information
 "#
     );

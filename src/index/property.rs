@@ -174,7 +174,13 @@ impl IndexManager {
     }
 
     /// Index a property value for a node.
-    pub fn index_property(&mut self, label: &str, property_key: &str, val: PropertyValue, node_id: NodeId) {
+    pub fn index_property(
+        &mut self,
+        label: &str,
+        property_key: &str,
+        val: PropertyValue,
+        node_id: NodeId,
+    ) {
         let key = IndexKey::new(label, property_key);
         if let Some(index) = self.indices.get_mut(&key) {
             index.insert(val, node_id);
@@ -182,7 +188,13 @@ impl IndexManager {
     }
 
     /// Unindex a property value for a node.
-    pub fn unindex_property(&mut self, label: &str, property_key: &str, val: &PropertyValue, node_id: NodeId) {
+    pub fn unindex_property(
+        &mut self,
+        label: &str,
+        property_key: &str,
+        val: &PropertyValue,
+        node_id: NodeId,
+    ) {
         let key = IndexKey::new(label, property_key);
         if let Some(index) = self.indices.get_mut(&key) {
             index.remove(val, node_id);
@@ -190,7 +202,12 @@ impl IndexManager {
     }
 
     /// Lookup node IDs matching an exact property value using an index.
-    pub fn find_exact(&self, label: &str, property_key: &str, val: &PropertyValue) -> Option<Vec<NodeId>> {
+    pub fn find_exact(
+        &self,
+        label: &str,
+        property_key: &str,
+        val: &PropertyValue,
+    ) -> Option<Vec<NodeId>> {
         let key = IndexKey::new(label, property_key);
         self.indices.get(&key).map(|idx| idx.find_exact(val))
     }
@@ -205,7 +222,13 @@ impl IndexManager {
     }
 
     /// Unindex a property value for a node (alias for unindex_property).
-    pub fn deindex_property(&mut self, label: &str, property_key: &str, val: &PropertyValue, node_id: NodeId) {
+    pub fn deindex_property(
+        &mut self,
+        label: &str,
+        property_key: &str,
+        val: &PropertyValue,
+        node_id: NodeId,
+    ) {
         self.unindex_property(label, property_key, val, node_id);
     }
 
@@ -220,5 +243,16 @@ impl IndexManager {
         for idx in self.indices.values_mut() {
             idx.clear();
         }
+    }
+
+    /// Returns a list of all indexed (label, property_key, is_unique) tuples.
+    pub fn list_indices(&self) -> Vec<(String, String, bool)> {
+        self.indices
+            .keys()
+            .map(|k| {
+                let is_unique = self.unique_constraints.contains(k);
+                (k.label.clone(), k.property_key.clone(), is_unique)
+            })
+            .collect()
     }
 }
