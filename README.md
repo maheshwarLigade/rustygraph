@@ -1,5 +1,12 @@
 # RustyGraph 🦀🕸️
 
+[![Latest Release](https://img.shields.io/github/v/release/maheshwarLigade/rustygraph?style=flat-square&color=2ea44f&label=latest%20release)](https://github.com/maheshwarLigade/rustygraph/releases/latest)
+[![GitHub Downloads](https://img.shields.io/github/downloads/maheshwarLigade/rustygraph/total?style=flat-square&color=blue)](https://github.com/maheshwarLigade/rustygraph/releases)
+[![CI Build](https://img.shields.io/github/actions/workflow/status/maheshwarLigade/rustygraph/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/maheshwarLigade/rustygraph/actions/workflows/ci.yml)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue?style=flat-square&logo=docker)](https://github.com/maheshwarLigade/rustygraph/pkgs/container/rustygraph)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-informational?style=flat-square)](https://maheshwarligade.github.io/rustygraph/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
+
 An ultra-fast, in-memory labeled property graph database library written in Rust, inspired by Neo4j.
 
 `rusty_graph` provides high-performance in-memory graph storage, property indexing, path traversal, declarative pattern matching, and graph data science (GDS) algorithms with zero external database dependencies.
@@ -70,6 +77,73 @@ An ultra-fast, in-memory labeled property graph database library written in Rust
 - **Concurrency & Persistence**:
   - `ConcurrentGraph` with `Arc<RwLock>` for multi-threaded reads/writes.
   - Full JSON export and import (`to_json` / `from_json`).
+
+---
+
+## 📦 Pre-Built Binaries & Release Downloads
+
+Pre-compiled, standalone binaries (`rustygraph-server`, `rustygraph-cli`, `rustygraph-mcp`) are published for all major operating systems on every release. You do not need Rust or any C/C++ toolchain to run RustyGraph!
+
+### 1. Download from GitHub Releases
+
+The latest release packages and SHA-256 checksums are always published on **[GitHub Releases (Latest)](https://github.com/maheshwarLigade/rustygraph/releases/latest)**.
+
+| Operating System / Architecture | Target Tuple | Format | Release Asset Link |
+| :--- | :--- | :--- | :--- |
+| **Linux x86_64 (glibc)** | `x86_64-unknown-linux-gnu` | `.tar.gz` | [Download Linux x86_64](https://github.com/maheshwarLigade/rustygraph/releases/latest) |
+| **Linux x86_64 (musl static)** | `x86_64-unknown-linux-musl` | `.tar.gz` | [Download Linux musl Static](https://github.com/maheshwarLigade/rustygraph/releases/latest) |
+| **Linux ARM64 / aarch64** | `aarch64-unknown-linux-gnu` | `.tar.gz` | [Download Linux ARM64](https://github.com/maheshwarLigade/rustygraph/releases/latest) |
+| **macOS Apple Silicon (M1/M2/M3/M4)** | `aarch64-apple-darwin` | `.tar.gz` | [Download macOS ARM64](https://github.com/maheshwarLigade/rustygraph/releases/latest) |
+| **macOS Intel** | `x86_64-apple-darwin` | `.tar.gz` | [Download macOS Intel](https://github.com/maheshwarLigade/rustygraph/releases/latest) |
+| **Windows x86_64** | `x86_64-pc-windows-msvc` | `.zip` | [Download Windows x64](https://github.com/maheshwarLigade/rustygraph/releases/latest) |
+
+Every release bundle contains:
+- `bin/rustygraph-server` - Standalone high-throughput HTTP REST engine + web studio
+- `bin/rustygraph-cli` - Interactive Cypher REPL and administration client
+- `bin/rustygraph-mcp` - Standard Model Context Protocol server for AI agents
+- `lib/` - Dynamic C-FFI shared libraries for Go and Java bindings
+- `SHA256SUMS.txt` & `.sha256` checksum files for integrity verification
+
+### 2. Automated Download & Install (Linux / macOS curl)
+
+Fetch and unpack the latest release archive automatically via the GitHub API:
+
+```bash
+# Choose target (e.g. x86_64-unknown-linux-musl, aarch64-unknown-linux-gnu, aarch64-apple-darwin)
+TARGET="x86_64-unknown-linux-musl"
+
+# Discover latest tag and download archive
+TAG=$(curl -sL https://api.github.com/repos/maheshwarLigade/rustygraph/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
+curl -sLO "https://github.com/maheshwarLigade/rustygraph/releases/download/${TAG}/rustygraph-${TAG}-${TARGET}.tar.gz"
+
+# Verify SHA256 checksum
+curl -sLO "https://github.com/maheshwarLigade/rustygraph/releases/download/${TAG}/rustygraph-${TAG}-${TARGET}.tar.gz.sha256"
+sha256sum -c "rustygraph-${TAG}-${TARGET}.tar.gz.sha256"
+
+# Unpack and start
+tar -xzf "rustygraph-${TAG}-${TARGET}.tar.gz"
+cd "rustygraph-${TAG}-${TARGET}/bin"
+./rustygraph-server --help
+```
+
+### 3. Windows PowerShell One-Liner
+
+```powershell
+$TAG = (Invoke-RestMethod "https://api.github.com/repos/maheshwarLigade/rustygraph/releases/latest").tag_name
+Invoke-WebRequest "https://github.com/maheshwarLigade/rustygraph/releases/download/$TAG/rustygraph-$TAG-x86_64-pc-windows-msvc.zip" -OutFile "rustygraph.zip"
+Expand-Archive -Path "rustygraph.zip" -DestinationPath "rustygraph"
+.\rustygraph\bin\rustygraph-server.exe --help
+```
+
+### 4. Production Docker Container (GHCR)
+
+You can also run pre-built multi-architecture containers (`linux/amd64`, `linux/arm64`) directly from GitHub Container Registry:
+
+```bash
+# Pull and run the latest image
+docker pull ghcr.io/maheshwarligade/rustygraph:latest
+docker run -d -p 8000:8000 -v ./rustygraph_data:/data ghcr.io/maheshwarligade/rustygraph:latest
+```
 
 ---
 

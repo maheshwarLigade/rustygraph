@@ -17,7 +17,7 @@
         <img src="assets/logo.jpg" alt="RustyGraph Crab Logo">
         <span>RustyGraph</span>
       </a>
-      <span class="nav-badge">v0.1.0</span>
+      <a href="https://github.com/maheshwarLigade/rustygraph/releases/latest" target="_blank" rel="noopener" class="nav-badge" title="View Latest Release on GitHub">v0.1.0 (Latest Release ↗)</a>
       <div class="nav-search">
         <input type="text" id="docSearchInput" placeholder="Search documentation...">
         <span class="search-key">Ctrl+K</span>
@@ -121,6 +121,7 @@
 
         <div class="hero-actions">
           <a href="#quickstart" class="btn btn-primary">⚡ Get Started</a>
+          <a href="https://github.com/maheshwarLigade/rustygraph/releases/latest" target="_blank" rel="noopener" class="btn btn-secondary">📦 Download Binaries</a>
           <a href="#playground" class="btn btn-secondary">🎮 Try Live Playground</a>
           <a href="https://github.com/maheshwarLigade/rustygraph" target="_blank" rel="noopener" class="btn btn-secondary">⭐ Star on GitHub</a>
         </div>
@@ -159,6 +160,7 @@
 
         <div class="tab-group">
           <button class="tab-btn active">Cargo (Library)</button>
+          <button class="tab-btn">Pre-built Binaries</button>
           <button class="tab-btn">Docker & Compose</button>
           <button class="tab-btn">Server Daemon</button>
           <button class="tab-btn">Interactive CLI</button>
@@ -211,6 +213,93 @@ fn main() -> Result<()> {
 
     Ok(())
 }</code></pre>
+          </div>
+        </div>
+
+        <!-- Pre-built Binaries Tab -->
+        <div class="tab-content">
+          <p>
+            Download pre-compiled release bundles containing <code>rustygraph-server</code>, <code>rustygraph-cli</code>, and <code>rustygraph-mcp</code> directly from 
+            <a href="https://github.com/maheshwarLigade/rustygraph/releases/latest" target="_blank" rel="noopener"><strong>GitHub Releases</strong></a> with zero compilation:
+          </p>
+
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Platform / OS</th>
+                  <th>Architecture / Target</th>
+                  <th>Format</th>
+                  <th>Direct Release Asset</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Linux</strong></td>
+                  <td><code>x86_64-unknown-linux-gnu</code> (glibc)</td>
+                  <td><code>.tar.gz</code></td>
+                  <td><a href="https://github.com/maheshwarLigade/rustygraph/releases/latest" target="_blank" rel="noopener">Download Linux x86_64 ↗</a></td>
+                </tr>
+                <tr>
+                  <td><strong>Linux (Static)</strong></td>
+                  <td><code>x86_64-unknown-linux-musl</code> (musl)</td>
+                  <td><code>.tar.gz</code></td>
+                  <td><a href="https://github.com/maheshwarLigade/rustygraph/releases/latest" target="_blank" rel="noopener">Download Linux musl Static ↗</a></td>
+                </tr>
+                <tr>
+                  <td><strong>Linux ARM64</strong></td>
+                  <td><code>aarch64-unknown-linux-gnu</code></td>
+                  <td><code>.tar.gz</code></td>
+                  <td><a href="https://github.com/maheshwarLigade/rustygraph/releases/latest" target="_blank" rel="noopener">Download Linux ARM64 ↗</a></td>
+                </tr>
+                <tr>
+                  <td><strong>macOS (Apple Silicon)</strong></td>
+                  <td><code>aarch64-apple-darwin</code> (M1/M2/M3/M4)</td>
+                  <td><code>.tar.gz</code></td>
+                  <td><a href="https://github.com/maheshwarLigade/rustygraph/releases/latest" target="_blank" rel="noopener">Download macOS ARM64 ↗</a></td>
+                </tr>
+                <tr>
+                  <td><strong>macOS (Intel)</strong></td>
+                  <td><code>x86_64-apple-darwin</code></td>
+                  <td><code>.tar.gz</code></td>
+                  <td><a href="https://github.com/maheshwarLigade/rustygraph/releases/latest" target="_blank" rel="noopener">Download macOS Intel ↗</a></td>
+                </tr>
+                <tr>
+                  <td><strong>Windows</strong></td>
+                  <td><code>x86_64-pc-windows-msvc</code></td>
+                  <td><code>.zip</code></td>
+                  <td><a href="https://github.com/maheshwarLigade/rustygraph/releases/latest" target="_blank" rel="noopener">Download Windows x64 ↗</a></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Automated Linux / macOS curl install script:</p>
+          <div class="code-container">
+            <div class="code-header">
+              <span class="code-lang-label">Terminal (curl)</span>
+              <button class="btn-copy">Copy</button>
+            </div>
+            <pre><code># 1. Fetch latest release archive
+TARGET="x86_64-unknown-linux-musl"
+TAG=$(curl -sL https://api.github.com/repos/maheshwarLigade/rustygraph/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
+curl -sLO "https://github.com/maheshwarLigade/rustygraph/releases/download/${TAG}/rustygraph-${TAG}-${TARGET}.tar.gz"
+
+# 2. Extract and launch server daemon
+tar -xzf "rustygraph-${TAG}-${TARGET}.tar.gz"
+./rustygraph-${TAG}-${TARGET}/bin/rustygraph-server --help</code></pre>
+          </div>
+
+          <p>Windows PowerShell One-Liner:</p>
+          <div class="code-container">
+            <div class="code-header">
+              <span class="code-lang-label">PowerShell</span>
+              <button class="btn-copy">Copy</button>
+            </div>
+            <pre><code>$TAG = (Invoke-RestMethod "https://api.github.com/repos/maheshwarLigade/rustygraph/releases/latest").tag_name
+Invoke-WebRequest "https://github.com/maheshwarLigade/rustygraph/releases/download/$TAG/rustygraph-$TAG-x86_64-pc-windows-msvc.zip" -OutFile "rustygraph.zip"
+Expand-Archive -Path "rustygraph.zip" -DestinationPath "rustygraph"
+.\rustygraph\bin\rustygraph-server.exe --help</code></pre>
           </div>
         </div>
 
