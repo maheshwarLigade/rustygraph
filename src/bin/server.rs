@@ -1,7 +1,6 @@
-use rusty_graph::db::DatabaseConfig;
 use rusty_graph::server::{ConnectionString, ServerConfig, StandaloneServer};
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -15,66 +14,92 @@ fn main() {
         return;
     }
 
-    let mut http_addr = "127.0.0.1:8000".to_string();
-    let mut cluster_addr = Some("127.0.0.1:9001".to_string());
-    let mut node_id = "node-1".to_string();
-    let mut cluster_mode = "cp".to_string();
-    let mut peer_addrs = Vec::new();
-    let mut data_dir = PathBuf::from("./data");
-    let mut fsync_policy = "always".to_string();
-    let mut auth_enabled = true;
-    let mut admin_password = "admin".to_string();
+    if args.iter().any(|a| a == "--init-config") {
+        let sample = ServerConfig::generate_sample_toml();
+        let target = Path::new("rustygraph.toml");
+        if target.exists() {
+            eprintln!("⚠️  rustygraph.toml already exists in current directory!");
+        } else {
+            std::fs::write(target, sample).expect("Failed to write rustygraph.toml");
+            println!("✅ Generated sample configuration file: rustygraph.toml");
+        }
+        return;
+    }
 
+    // Step 1: Check for explicit config path (-c, --config <PATH>)
+    let mut explicit_config: Option<PathBuf> = None;
+    let mut i = 1;
+    while i < args.len() {
+        if (args[i] == "--config" || args[i] == "-c") && i + 1 < args.len() {
+            explicit_config = Some(PathBuf::from(&args[i + 1]));
+            break;
+        }
+        i += 1;
+    }
+
+    // Step 2: Load layered configuration (Defaults -> File -> Environment Variables)
+    let mut config = match ServerConfig::load_layered(explicit_config.as_deref()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("❌ Configuration Error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Step 3: Apply CLI argument overrides (Highest precedence)
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--config" | "-c" if i + 1 < args.len() => {
+                i += 2; // already handled
+            }
             "--http" | "--listen-http" | "--http-addr" if i + 1 < args.len() => {
-                http_addr = args[i + 1].clone();
+                config.http_addr = args[i + 1].clone();
                 i += 2;
             }
             "--cluster" | "--listen-cluster" | "--cluster-addr" if i + 1 < args.len() => {
-                cluster_addr = Some(args[i + 1].clone());
+                config.cluster_addr = Some(args[i + 1].clone());
                 i += 2;
             }
             "--no-cluster" => {
-                cluster_addr = None;
+                config.cluster_addr = None;
                 i += 1;
             }
             "--node-id" | "--cluster-node-id" if i + 1 < args.len() => {
-                node_id = args[i + 1].clone();
+                config.node_id = args[i + 1].clone();
                 i += 2;
             }
             "--mode" | "--cluster-mode" if i + 1 < args.len() => {
-                cluster_mode = args[i + 1].clone();
+                config.cluster_mode = args[i + 1].clone();
                 i += 2;
             }
             "--peers" | "--peer" | "--cluster-peer" | "--cluster-peers" if i + 1 < args.len() => {
                 for peer in args[i + 1].split(',') {
                     let trimmed = peer.trim();
                     if !trimmed.is_empty() {
-                        peer_addrs.push(trimmed.to_string());
+                        config.peer_addrs.push(trimmed.to_string());
                     }
                 }
                 i += 2;
             }
             "--data-dir" if i + 1 < args.len() => {
-                data_dir = PathBuf::from(args[i + 1].clone());
+                config.db_config.data_dir = PathBuf::from(args[i + 1].clone());
                 i += 2;
             }
             "--fsync" if i + 1 < args.len() => {
-                fsync_policy = args[i + 1].clone();
+                config.db_config.fsync_policy = args[i + 1].clone();
                 i += 2;
             }
             "--auth" => {
-                auth_enabled = true;
+                config.auth_enabled = true;
                 i += 1;
             }
             "--no-auth" => {
-                auth_enabled = false;
+                config.auth_enabled = false;
                 i += 1;
             }
             "--admin-pass" | "--admin-password" if i + 1 < args.len() => {
-                admin_password = args[i + 1].clone();
+                config.default_admin_password = Some(args[i + 1].clone());
                 i += 2;
             }
             _ => {
@@ -85,10 +110,14 @@ fn main() {
         }
     }
 
-    let conn_str = if auth_enabled {
-        format!("rustygraph://admin:{}@{}", admin_password, http_addr)
+    let admin_pass = config
+        .default_admin_password
+        .clone()
+        .unwrap_or_else(|| "admin".to_string());
+    let conn_str = if config.auth_enabled {
+        format!("rustygraph://admin:{}@{}", admin_pass, config.http_addr)
     } else {
-        format!("rustygraph://{}", http_addr)
+        format!("rustygraph://{}", config.http_addr)
     };
     let masked_conn = ConnectionString::parse(&conn_str)
         .map(|cs| cs.to_masked_string())
@@ -97,47 +126,29 @@ fn main() {
     println!("=====================================================================");
     println!("        🦀 RustyGraph Standalone Distributed NoSQL Server            ");
     println!("=====================================================================");
-    println!("  Node ID:          {}", node_id);
-    println!("  HTTP REST API:    http://{}", http_addr);
+    println!("  Node ID:          {}", config.node_id);
+    println!("  HTTP REST API:    http://{}", config.http_addr);
     println!("  Connection URI:   {}", masked_conn);
     println!(
         "  Authentication:   {}",
-        if auth_enabled {
+        if config.auth_enabled {
             "Enabled (RBAC Active)"
         } else {
             "Disabled"
         }
     );
-    if let Some(ref c_addr) = cluster_addr {
+    if let Some(ref c_addr) = config.cluster_addr {
         println!("  Cluster TCP:      tcp://{}", c_addr);
-        println!("  Cluster Mode:     {}", cluster_mode.to_uppercase());
-        println!("  Initial Peers:    {:?}", peer_addrs);
+        println!("  Cluster Mode:     {}", config.cluster_mode.to_uppercase());
+        println!("  Initial Peers:    {:?}", config.peer_addrs);
     } else {
         println!("  Clustering:       Disabled (Standalone Single-Node)");
     }
-    println!("  Data Directory:   {}", data_dir.display());
-    println!("  Fsync Policy:     {}", fsync_policy);
+    println!("  Data Directory:   {}", config.db_config.data_dir.display());
+    println!("  Fsync Policy:     {}", config.db_config.fsync_policy);
     println!("=====================================================================");
 
-    let db_config = DatabaseConfig {
-        data_dir,
-        fsync_policy,
-        keep_snapshots: 3,
-        auto_checkpoint_ops: 5000,
-    };
-
-    let server_config = ServerConfig {
-        http_addr,
-        cluster_addr,
-        node_id,
-        cluster_mode,
-        peer_addrs,
-        db_config,
-        auth_enabled,
-        default_admin_password: Some(admin_password),
-    };
-
-    let server = match StandaloneServer::start(server_config) {
+    let server = match StandaloneServer::start(config) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("❌ Fatal Error starting RustyGraph server: {}", e);
@@ -172,19 +183,36 @@ fn print_help() {
 USAGE:
     rustygraph-server [OPTIONS]
 
+CONFIGURATION MODEL:
+    Layered Precedence: CLI Flags > Environment Variables > Config File > Defaults
+
 OPTIONS:
-    --http <ADDR>          HTTP REST API bind address (default: 127.0.0.1:8000)
+    -c, --config <FILE>    Path to TOML or JSON config file (default: ./rustygraph.toml)
+    --init-config          Generate a sample rustygraph.toml configuration file in current directory
+    --http <ADDR>          HTTP REST API bind address (default: 0.0.0.0:8000)
     --cluster <ADDR>       Inter-node cluster TCP bind address (default: 127.0.0.1:9001)
     --no-cluster           Disable cluster networking
     --node-id <ID>         Unique cluster node identifier (default: node-1)
-    --mode <cp|ap>         Distributed cluster consensus mode (default: cp)
+    --mode <cp|ap>         Distributed cluster consensus mode: cp | ap (default: cp)
     --peers <ADDR,ADDR>    Comma-separated list of existing peer cluster TCP addresses
     --data-dir <DIR>       Path to durable database directory (default: ./data)
     --fsync <POLICY>       Disk sync policy: always | periodic | never (default: always)
-    --auth                 Enable authentication and RBAC (default)
+    --auth                 Enable authentication and RBAC
     --no-auth              Disable authentication
     --admin-pass <PASS>    Initial password for root 'admin' user (default: admin)
     -h, --help             Print help information
+
+ENVIRONMENT VARIABLES:
+    RUSTYGRAPH_CONFIG             Path to configuration file
+    RUSTYGRAPH_HTTP_ADDR          HTTP REST API bind address
+    RUSTYGRAPH_CLUSTER_ADDR       Cluster TCP address (or 'none' to disable)
+    RUSTYGRAPH_NODE_ID            Node identifier
+    RUSTYGRAPH_CLUSTER_MODE       Consensus mode: 'cp' or 'ap'
+    RUSTYGRAPH_PEERS              Comma-separated peer addresses
+    RUSTYGRAPH_DATA_DIR           Database persistence directory
+    RUSTYGRAPH_FSYNC              Disk sync policy: 'always', 'periodic', 'never'
+    RUSTYGRAPH_AUTH_ENABLED       Enable/disable authentication ('true' / 'false')
+    RUSTYGRAPH_ADMIN_PASSWORD     Initial root administrator password
 "#
     );
 }

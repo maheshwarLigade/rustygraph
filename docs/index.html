@@ -324,14 +324,25 @@ curl http://localhost:8080/health</code></pre>
 
         <!-- Server Daemon Tab -->
         <div class="tab-content">
-          <p>Launch the high-performance HTTP REST daemon with persistent Write-Ahead Logging:</p>
+          <p>
+            Launch the high-performance HTTP REST daemon. RustyGraph supports a <strong>Layered Configuration Architecture</strong> (CLI Flags &gt; Environment Variables &gt; <code>rustygraph.toml</code> &gt; Defaults):
+          </p>
           <div class="code-container">
             <div class="code-header">
               <span class="code-lang-label">Terminal</span>
               <button class="btn-copy">Copy</button>
             </div>
-            <pre><code># Start Standalone Server on port 8000
-cargo run --bin rustygraph-server -- --http 0.0.0.0:8000 --data ./data --fsync always</code></pre>
+            <pre><code># 1. Zero-Config Mode: Launch with built-in default conventions
+cargo run --bin rustygraph-server
+
+# 2. Generate a dedicated declarative configuration file
+cargo run --bin rustygraph-server -- --init-config
+
+# 3. Launch with explicit configuration file
+cargo run --bin rustygraph-server -- --config ./rustygraph.toml
+
+# 4. Or override via environment variables (Docker / 12-Factor App)
+RUSTYGRAPH_HTTP_ADDR="0.0.0.0:8000" RUSTYGRAPH_CLUSTER_MODE="cp" cargo run --bin rustygraph-server</code></pre>
           </div>
         </div>
 

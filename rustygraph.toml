@@ -1,0 +1,48 @@
+# =============================================================================
+# RustyGraph Server Configuration
+# Layered Configuration Model: CLI Flags > Env Vars > Config File > Defaults
+# =============================================================================
+
+[server]
+# HTTP REST API and Web Studio bind address
+http_addr = "0.0.0.0:8000"
+
+# Enable RBAC authentication and JWT token security
+auth_enabled = true
+
+# Initial root administrator password (applied if user database is uninitialized)
+default_admin_password = "admin"
+
+[cluster]
+# Unique node identifier within the distributed cluster
+node_id = "node-1"
+
+# Inter-node TCP cluster consensus bind address
+cluster_addr = "127.0.0.1:9001"
+
+# Distributed cluster consensus mode:
+# - "cp": Causal Clustering with strict majority quorum writes (Neo4j-style)
+# - "ap": High Availability with LWW anti-entropy and full partition tolerance
+cluster_mode = "cp"
+
+# Initial seed peers to discover and join upon boot
+peer_addrs = [
+    # "127.0.0.1:9002",
+    # "127.0.0.1:9003"
+]
+
+[storage]
+# Directory where Write-Ahead Logs (WAL) and memory snapshots are persisted
+data_dir = "./data"
+
+# Durability disk synchronization policy:
+# - "always": fsync on every commit / WAL mutation (maximum durability)
+# - "periodic": fsync at background interval (balanced performance)
+# - "never": rely entirely on OS page cache flushing (maximum throughput)
+fsync_policy = "always"
+
+# Number of historical full-graph snapshots to retain on disk
+keep_snapshots = 3
+
+# Automatic background checkpoint trigger after N write mutations
+auto_checkpoint_ops = 5000

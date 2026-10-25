@@ -452,11 +452,59 @@ RustyGraph can run as a **standalone NoSQL distributed database server** with ze
 
 ### Starting the Server (`rustygraph-server`)
 
-```bash
-# Build standalone binaries
-cargo build --release
+RustyGraph adopts a **Layered Configuration Architecture** (Configuration over Convention with sensible defaults):
 
-# Start standalone server on HTTP port 8000 and cluster port 9001
+$$\text{CLI Flags} > \text{Environment Variables} > \text{Config File (\texttt{rustygraph.toml})} > \text{Default Conventions}$$
+
+#### 1. Zero-Config Convention Mode
+Run with sensible built-in defaults out of the box:
+```bash
+cargo run --bin rustygraph-server
+```
+
+#### 2. Declarative Configuration File Mode (`rustygraph.toml`)
+Generate and use a dedicated configuration file for full declarative control:
+```bash
+# Generate sample configuration file in current directory
+cargo run --bin rustygraph-server -- --init-config
+
+# Launch using custom configuration file
+cargo run --bin rustygraph-server -- --config ./rustygraph.toml
+```
+
+Sample `rustygraph.toml`:
+```toml
+[server]
+http_addr = "0.0.0.0:8000"
+auth_enabled = true
+default_admin_password = "admin"
+
+[cluster]
+node_id = "node-1"
+cluster_addr = "127.0.0.1:9001"
+cluster_mode = "cp"
+peer_addrs = []
+
+[storage]
+data_dir = "./data"
+fsync_policy = "always"
+keep_snapshots = 3
+auto_checkpoint_ops = 5000
+```
+
+#### 3. Environment Variable Mode (12-Factor App / Docker)
+Every setting can be configured via environment variables:
+```bash
+export RUSTYGRAPH_HTTP_ADDR="0.0.0.0:8000"
+export RUSTYGRAPH_DATA_DIR="/var/lib/rustygraph"
+export RUSTYGRAPH_CLUSTER_MODE="cp"
+export RUSTYGRAPH_AUTH_ENABLED="true"
+cargo run --bin rustygraph-server
+```
+
+#### 4. Command-Line Flag Overrides
+CLI flags take highest precedence and override any file or environment setting:
+```bash
 cargo run --bin rustygraph-server -- --http 127.0.0.1:8000 --cluster 127.0.0.1:9001 --node-id node-1 --data-dir ./data
 ```
 
