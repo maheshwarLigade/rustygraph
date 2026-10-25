@@ -144,7 +144,10 @@ fn main() {
     } else {
         println!("  Clustering:       Disabled (Standalone Single-Node)");
     }
-    println!("  Data Directory:   {}", config.db_config.data_dir.display());
+    println!(
+        "  Data Directory:   {}",
+        config.db_config.data_dir.display()
+    );
     println!("  Fsync Policy:     {}", config.db_config.fsync_policy);
     println!("=====================================================================");
 

@@ -16,8 +16,8 @@ fn test_property_value_variants_and_constructors() {
     assert_eq!(int_v.as_f64(), Some(42.0));
     assert_eq!(int_v.type_name(), "Int");
 
-    let float_v = PropertyValue::from(3.14159f64);
-    assert_eq!(float_v.as_f64(), Some(3.14159));
+    let float_v = PropertyValue::from(std::f64::consts::PI);
+    assert_eq!(float_v.as_f64(), Some(std::f64::consts::PI));
     assert_eq!(float_v.as_i64(), None); // fractional float cannot be converted to i64
     assert_eq!(float_v.type_name(), "Float");
 

@@ -62,12 +62,18 @@ auto_checkpoint_ops = 20000
 
     assert_eq!(cfg.http_addr, "127.0.0.1:9999");
     assert!(cfg.auth_enabled);
-    assert_eq!(cfg.default_admin_password, Some("supersecretpassword".to_string()));
+    assert_eq!(
+        cfg.default_admin_password,
+        Some("supersecretpassword".to_string())
+    );
     assert_eq!(cfg.node_id, "cluster-seed-1");
     assert_eq!(cfg.cluster_addr, Some("127.0.0.1:9991".to_string()));
     assert_eq!(cfg.cluster_mode, "ap");
     assert_eq!(cfg.peer_addrs, vec!["127.0.0.1:9992", "127.0.0.1:9993"]);
-    assert_eq!(cfg.db_config.data_dir, PathBuf::from("/tmp/rustygraph_store"));
+    assert_eq!(
+        cfg.db_config.data_dir,
+        PathBuf::from("/tmp/rustygraph_store")
+    );
     assert_eq!(cfg.db_config.fsync_policy, "periodic");
     assert_eq!(cfg.db_config.keep_snapshots, 7);
     assert_eq!(cfg.db_config.auto_checkpoint_ops, 20000);
@@ -139,7 +145,10 @@ fn test_environment_variable_precedence() {
     assert_eq!(cfg.db_config.data_dir, PathBuf::from("./env_data"));
     assert_eq!(cfg.db_config.fsync_policy, "periodic");
     assert!(cfg.auth_enabled);
-    assert_eq!(cfg.default_admin_password, Some("env_secret_pass".to_string()));
+    assert_eq!(
+        cfg.default_admin_password,
+        Some("env_secret_pass".to_string())
+    );
     assert_eq!(cfg.peer_addrs, vec!["10.0.0.1:9001", "10.0.0.2:9001"]);
 
     // Clean up env vars
@@ -175,7 +184,8 @@ fn test_disable_cluster_via_env() {
 fn test_sample_toml_validity() {
     let sample = ServerConfig::generate_sample_toml();
     let mut cfg = ServerConfig::default();
-    cfg.apply_str(sample, false).expect("Sample TOML must parse without error");
+    cfg.apply_str(sample, false)
+        .expect("Sample TOML must parse without error");
 
     assert_eq!(cfg.http_addr, "0.0.0.0:8000");
     assert_eq!(cfg.node_id, "node-1");

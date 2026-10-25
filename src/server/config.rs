@@ -115,7 +115,10 @@ impl ServerConfig {
                 Path::new("config/rustygraph.toml"),
                 Path::new("config/rustygraph.json"),
             ];
-            candidates.iter().find(|p| p.exists()).map(|p| p.to_path_buf())
+            candidates
+                .iter()
+                .find(|p| p.exists())
+                .map(|p| p.to_path_buf())
         };
 
         if let Some(ref path) = path_to_load {
@@ -138,26 +141,27 @@ impl ServerConfig {
             ))
         })?;
 
-        self.apply_str(&content, path.extension().and_then(|s| s.to_str()) == Some("json"))
-            .map_err(|e| {
-                GraphError::SerializationError(format!(
-                    "Failed to parse config {}: {}",
-                    path.display(),
-                    e
-                ))
-            })
+        self.apply_str(
+            &content,
+            path.extension().and_then(|s| s.to_str()) == Some("json"),
+        )
+        .map_err(|e| {
+            GraphError::SerializationError(format!(
+                "Failed to parse config {}: {}",
+                path.display(),
+                e
+            ))
+        })
     }
 
     /// Parse and apply configuration from a string (TOML or JSON).
     pub fn apply_str(&mut self, content: &str, is_json: bool) -> Result<()> {
         let parsed: ConfigFile = if is_json {
-            serde_json::from_str(content).map_err(|e| {
-                GraphError::SerializationError(format!("JSON parse error: {}", e))
-            })?
+            serde_json::from_str(content)
+                .map_err(|e| GraphError::SerializationError(format!("JSON parse error: {}", e)))?
         } else {
-            toml::from_str(content).map_err(|e| {
-                GraphError::SerializationError(format!("TOML parse error: {}", e))
-            })?
+            toml::from_str(content)
+                .map_err(|e| GraphError::SerializationError(format!("TOML parse error: {}", e)))?
         };
 
         // Merge section-based settings
@@ -251,7 +255,9 @@ impl ServerConfig {
             }
         }
 
-        if let Ok(val) = env::var("RUSTYGRAPH_CLUSTER_ADDR").or_else(|_| env::var("RUSTYGRAPH_CLUSTER")) {
+        if let Ok(val) =
+            env::var("RUSTYGRAPH_CLUSTER_ADDR").or_else(|_| env::var("RUSTYGRAPH_CLUSTER"))
+        {
             let trimmed = val.trim();
             if trimmed.eq_ignore_ascii_case("none")
                 || trimmed.eq_ignore_ascii_case("disabled")
@@ -269,13 +275,17 @@ impl ServerConfig {
             }
         }
 
-        if let Ok(val) = env::var("RUSTYGRAPH_CLUSTER_MODE").or_else(|_| env::var("RUSTYGRAPH_MODE")) {
+        if let Ok(val) =
+            env::var("RUSTYGRAPH_CLUSTER_MODE").or_else(|_| env::var("RUSTYGRAPH_MODE"))
+        {
             if !val.trim().is_empty() {
                 self.cluster_mode = val.trim().to_string();
             }
         }
 
-        if let Ok(val) = env::var("RUSTYGRAPH_PEERS").or_else(|_| env::var("RUSTYGRAPH_CLUSTER_PEERS")) {
+        if let Ok(val) =
+            env::var("RUSTYGRAPH_PEERS").or_else(|_| env::var("RUSTYGRAPH_CLUSTER_PEERS"))
+        {
             self.peer_addrs = val
                 .split(',')
                 .map(|s| s.trim().to_string())
@@ -289,7 +299,9 @@ impl ServerConfig {
             }
         }
 
-        if let Ok(val) = env::var("RUSTYGRAPH_FSYNC").or_else(|_| env::var("RUSTYGRAPH_FSYNC_POLICY")) {
+        if let Ok(val) =
+            env::var("RUSTYGRAPH_FSYNC").or_else(|_| env::var("RUSTYGRAPH_FSYNC_POLICY"))
+        {
             if !val.trim().is_empty() {
                 self.db_config.fsync_policy = val.trim().to_string();
             }
@@ -307,7 +319,9 @@ impl ServerConfig {
             }
         }
 
-        if let Ok(val) = env::var("RUSTYGRAPH_AUTH_ENABLED").or_else(|_| env::var("RUSTYGRAPH_AUTH")) {
+        if let Ok(val) =
+            env::var("RUSTYGRAPH_AUTH_ENABLED").or_else(|_| env::var("RUSTYGRAPH_AUTH"))
+        {
             match val.trim().to_lowercase().as_str() {
                 "1" | "true" | "yes" | "on" => self.auth_enabled = true,
                 "0" | "false" | "no" | "off" => self.auth_enabled = false,
@@ -315,7 +329,9 @@ impl ServerConfig {
             }
         }
 
-        if let Ok(val) = env::var("RUSTYGRAPH_ADMIN_PASSWORD").or_else(|_| env::var("RUSTYGRAPH_ADMIN_PASS")) {
+        if let Ok(val) =
+            env::var("RUSTYGRAPH_ADMIN_PASSWORD").or_else(|_| env::var("RUSTYGRAPH_ADMIN_PASS"))
+        {
             if !val.is_empty() {
                 self.default_admin_password = Some(val);
             }
@@ -416,7 +432,10 @@ auto_checkpoint_ops = 25000
 
         assert_eq!(cfg.http_addr, "192.168.1.100:9999");
         assert!(cfg.auth_enabled);
-        assert_eq!(cfg.default_admin_password, Some("secret_pass_123".to_string()));
+        assert_eq!(
+            cfg.default_admin_password,
+            Some("secret_pass_123".to_string())
+        );
         assert_eq!(cfg.node_id, "cluster-master-01");
         assert_eq!(cfg.cluster_addr, Some("192.168.1.100:9991".to_string()));
         assert_eq!(cfg.cluster_mode, "ap");
